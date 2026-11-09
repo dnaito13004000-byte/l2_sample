@@ -1,0 +1,1697 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>[hidden]{display:none!important}</style>
+<title>L2点群サンプル</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* Layout: 測量機器の画面。左に3Dビュー（下に断面図）、右に平面図＋操作パネル。狭い画面では縦に積む */
+:root{
+  --bg:#0e1311; --panel:#151c19; --raise:#1c2521; --line:#2a3530; --fg:#dde6e1; --muted:#87978f;
+  --accent:#e6b43a; --accent-ink:#1a1407; --grid:#24302b; --danger:#e0705e; --ok:#7cc48a; --cmp:#5ec6e2;
+  /* 3D・平面図・断面図はテーマに関係なく常に暗い背景（明るい点群が映える） */
+  --view:#060908; --view-grid:#1c2622; --view-ink:#a3b4ac; --view-fg:#eef4f0; --view-accent:#f4c548; --view-cmp:#6fd6f2;
+  --f-ui:"IBM Plex Sans JP","Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,"Consolas",monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){
+  --bg:#eef1ee; --panel:#ffffff; --raise:#f4f6f3; --line:#d3dbd6; --fg:#16201b; --muted:#5b6a63;
+  --accent:#a8770a; --accent-ink:#ffffff; --grid:#c7d1cb; --danger:#b8432f; --ok:#2e7d45; --cmp:#1b7f9e; color-scheme:light } }
+:root[data-theme="light"]{
+  --bg:#eef1ee; --panel:#ffffff; --raise:#f4f6f3; --line:#d3dbd6; --fg:#16201b; --muted:#5b6a63;
+  --accent:#a8770a; --accent-ink:#ffffff; --grid:#c7d1cb; --danger:#b8432f; --ok:#2e7d45; --cmp:#1b7f9e; color-scheme:light }
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:13.5px;line-height:1.55;overflow:hidden}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button,select,input{font:inherit;color:inherit}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr)}
+
+/* header */
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-block:10px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.mark{width:26px;height:26px;flex:none;border:2px solid var(--accent);border-radius:50%;position:relative}
+.mark::before,.mark::after{content:"";position:absolute;background:var(--accent)}
+.mark::before{left:50%;top:-5px;bottom:-5px;width:2px;transform:translateX(-50%)}
+.mark::after{top:50%;left:-5px;right:-5px;height:2px;transform:translateY(-50%)}
+.brand h1{font-size:15px;font-weight:700;margin:0;letter-spacing:.02em;white-space:nowrap}
+.brand small{display:block;font-size:11px;color:var(--muted);font-weight:400;letter-spacing:.06em}
+.filechip{font-family:var(--f-num);font-size:12px;color:var(--muted);border:1px solid var(--line);padding:3px 9px;border-radius:4px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40ch}
+.filechip b{color:var(--fg);font-weight:500}
+.spacer{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--raise);
+  padding:7px 12px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn:focus-visible,select:focus-visible,input:focus-visible,.seg button:focus-visible,.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.btn.small{padding:4px 9px;font-size:12px}
+.btn.on{border-color:var(--accent);color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* main */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 372px;min-height:0}
+.stage{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0;min-width:0;border-right:1px solid var(--line)}
+.view{position:relative;min-height:0;background:var(--view);overflow:hidden}
+.view canvas{display:block;width:100%;height:100%;touch-action:none}
+.hud{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:12px;display:flex;gap:6px;flex-wrap:wrap}
+.hud .btn{background:rgba(14,19,17,.78);color:var(--view-fg);border-color:rgba(255,255,255,.14);backdrop-filter:blur(4px)}
+.hud .btn:hover{border-color:rgba(255,255,255,.4)}
+.legend{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:12px;background:rgba(14,19,17,.82);color:var(--view-fg);
+  border:1px solid rgba(255,255,255,.12);border-radius:5px;padding:7px 10px;font-size:11.5px;max-width:calc(100% - 24px)}
+.legend .bar{height:8px;width:180px;max-width:100%;border-radius:2px;margin:4px 0 2px}
+.legend .ends{display:flex;justify-content:space-between;font-family:var(--f-num);color:var(--view-ink)}
+#cmpLegend{background:var(--raise);color:var(--fg);border-color:var(--line)}
+#cmpLegend .ends{color:var(--muted)}
+.legend .chips{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:3px}
+.legend .chips span{display:inline-flex;align-items:center;gap:4px}
+.legend .chips i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.stats3d{position:absolute;right:12px;bottom:12px;font-family:var(--f-num);font-size:11.5px;color:var(--view-ink);text-align:right;
+  background:rgba(14,19,17,.75);padding:4px 8px;border-radius:4px}
+
+.loading{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--view) 82%,transparent)}
+.loadbox{width:min(340px,86%);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px}
+.loadbox .track{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:10px}
+.loadbox .fill{height:100%;width:0;background:var(--accent);transition:width .15s}
+.drop{position:absolute;inset:10px;border:2px dashed var(--accent);border-radius:8px;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--view) 70%,transparent);font-size:16px;font-weight:700;color:var(--accent);pointer-events:none}
+
+/* profile */
+.profile{border-top:1px solid var(--line);background:var(--panel);height:clamp(220px,36vh,360px);display:grid;grid-template-rows:auto minmax(0,1fr)}
+.phead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 12px;border-bottom:1px solid var(--line)}
+.phead h2{font-size:13px;margin:0;font-weight:700}
+.phead .meta{font-family:var(--f-num);font-size:12px;color:var(--muted)}
+.pwrap{position:relative;min-height:0}
+.secbar{flex-basis:100%;display:flex;align-items:center;gap:10px;min-width:0}
+.secbar label{font-size:12px;color:var(--muted);white-space:nowrap}
+.secbar input[type=range]{flex:1;min-width:0;height:28px}
+.secbar .seg button{padding:5px 10px}
+.phint{font-family:var(--f-ui)!important;font-size:11px!important}
+@media (max-width:1400px){.phint{display:none}}
+.pwrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+.pwrap canvas.measuring{cursor:crosshair}
+.mread{position:absolute;right:10px;top:8px;background:rgba(14,19,17,.9);color:var(--view-fg);border:1px solid var(--view-accent);border-radius:5px;padding:6px 10px;
+  font-family:var(--f-num);font-size:12px;line-height:1.6}
+
+/* side panel */
+.side{display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+.mapbox{padding-block:12px 10px;padding-left:16px;padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line)}
+.label{font-size:11px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;gap:8px}
+#map{display:block;width:100%;margin-top:6px;border-radius:4px;background:var(--view);touch-action:none;cursor:crosshair}
+.maphint{font-size:11.5px;color:var(--muted);margin-top:5px}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--line)}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:9px 4px;cursor:pointer;color:var(--muted);font-weight:500}
+.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.pane{overflow:auto;min-height:0;flex:1;padding-block:14px 24px;padding-left:16px;padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+.group{display:flex;flex-direction:column;gap:7px}
+.group h3{font-size:12px;margin:0;color:var(--muted);font-weight:500;letter-spacing:.04em}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row label{flex:1;min-width:0}
+.val{font-family:var(--f-num);font-size:12.5px;min-width:6ch;text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+select{background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 8px}
+.seg{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{flex:1 1 auto;background:var(--raise);border:0;border-right:1px solid var(--line);padding:6px 8px;cursor:pointer;font-size:12.5px}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:700}
+.seg button:disabled{opacity:.4;cursor:not-allowed}
+.check{display:flex;align-items:center;gap:8px;cursor:pointer}
+.check input{accent-color:var(--accent);width:16px;height:16px}
+.note{font-size:12px;color:var(--muted);margin:0}
+.note.warn{color:var(--danger)}
+
+.result{border:1px solid var(--line);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--raise)}
+.count{display:flex;align-items:baseline;gap:6px}
+.count b{font-family:var(--f-num);font-size:38px;line-height:1;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px}
+.kv dt{color:var(--muted)}
+.kv dt.sub{font-size:11.5px}
+.kv dd b{font-weight:500;color:var(--accent)}
+.kv dd{margin:0;font-family:var(--f-num);text-align:right;font-variant-numeric:tabular-nums}
+#hist{width:100%;height:110px;display:block}
+.tablewrap{overflow:auto;max-height:240px;border:1px solid var(--line);border-radius:5px}
+table{border-collapse:collapse;width:100%;font-family:var(--f-num);font-size:11.5px;font-variant-numeric:tabular-nums}
+th,td{padding:4px 7px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--panel);font-family:var(--f-ui);font-weight:500;color:var(--muted)}
+.copyfall{width:100%;height:90px;font-family:var(--f-num);font-size:11px;background:var(--raise);color:var(--fg);border:1px solid var(--line);border-radius:4px}
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);
+  padding:8px 14px;border-radius:5px;font-size:13px;z-index:50;max-width:calc(100% - 32px)}
+
+@media (max-width:900px){
+  body{overflow:auto}
+  .app{height:auto;display:block}
+  .main{display:block}
+  .stage{border-right:0;display:block}
+  .view{height:58svh;min-height:320px}
+  .profile{height:300px}
+  .side{border-top:1px solid var(--line)}
+  .pane{overflow:visible}
+  .filechip{max-width:100%;order:3;flex-basis:100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>
+      <h1>L2点群サンプル<small>ルックアップドローン</small></h1></div>
+    <div class="filechip" id="fileChip">サンプルデータ</div>
+    <div class="spacer"></div>
+    <input type="file" id="fileIn" accept=".las,.laz" multiple hidden>
+    <button class="btn primary" id="openBtn" type="button">LASファイルを開く（複数可）</button>
+  </header>
+
+  <div class="main">
+    <section class="stage">
+      <div class="view" id="view">
+        <div class="hud">
+          <button class="btn small" type="button" data-cam="persp">斜めから</button>
+          <button class="btn small" type="button" data-cam="top">真上から</button>
+          <button class="btn small" type="button" data-cam="side">横から</button>
+        </div>
+        <div class="legend" id="legend"></div>
+        <div class="stats3d" id="stats3d"></div>
+        <div class="loading" id="loading" hidden><div class="loadbox">
+          <div id="loadMsg">読み込み中…</div>
+          <div class="track"><div class="fill" id="loadFill"></div></div>
+        </div></div>
+        <div class="drop" id="drop" hidden>ここにLASファイルをドロップ（複数まとめてOK）</div>
+      </div>
+      <div class="profile" id="profile" hidden>
+        <div class="phead">
+          <h2>断面図 A–A′</h2>
+          <span class="meta" id="pMeta"></span>
+          <div class="spacer"></div>
+          <span class="meta" id="pLegend" hidden><span style="color:var(--cmp)">●</span> 前回　<span style="color:var(--fg)">●</span> 今回</span>
+          <span class="meta phint">スクロール：断面を前後に送る　Shift：左右　Ctrl：拡大</span>
+          <button class="btn small" type="button" id="pPrev" aria-label="断面を手前へ">▲ 手前</button>
+          <button class="btn small" type="button" id="pNext" aria-label="断面を奥へ">奥 ▼</button>
+          <button class="btn small" type="button" id="pZout" aria-label="縮小">−</button>
+          <button class="btn small" type="button" id="pZin" aria-label="拡大">＋</button>
+          <button class="btn small" type="button" id="pMeasure">2点を計測</button>
+          <button class="btn small" type="button" id="pFit">全体表示</button>
+          <button class="btn small" type="button" id="pClose" aria-label="断面図を閉じる">閉じる</button>
+          <div class="secbar">
+            <label for="secPos">断面の位置</label>
+            <input type="range" id="secPos" min="-100" max="100" step="0.5" value="0">
+            <span class="val" id="secPosV">±0.0 m</span>
+            <div class="seg" id="secDirSeg">
+              <button type="button" data-d="ew" aria-pressed="true">東西</button>
+              <button type="button" data-d="ns" aria-pressed="false">南北</button>
+            </div>
+          </div>
+        </div>
+        <div class="pwrap"><canvas id="pcv"></canvas><div class="mread" id="mRead" hidden></div></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="mapbox">
+        <div class="label"><span>平面図</span><span id="mapScale" style="font-family:var(--f-num);text-transform:none;letter-spacing:0"></span></div>
+        <canvas id="map" height="200"></canvas>
+        <div class="maphint">平面図をドラッグすると断面線を引けます。スクロールで断面を前後に送れます</div>
+      </div>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="disp" type="button">表示</button>
+        <button role="tab" aria-selected="false" data-tab="sec" type="button">断面</button>
+        <button role="tab" aria-selected="false" data-tab="tree" type="button">樹木</button>
+        <button role="tab" aria-selected="false" data-tab="cmp" type="button">比較</button>
+        <button role="tab" aria-selected="false" data-tab="info" type="button">情報</button>
+      </div>
+
+      <div class="pane" id="tab-disp">
+        <div class="group"><h3>色分け</h3>
+          <div class="seg" id="colorSeg">
+            <button type="button" data-c="elev" aria-pressed="true">標高</button>
+            <button type="button" data-c="rgb" aria-pressed="false">RGB</button>
+            <button type="button" data-c="int" aria-pressed="false">反射強度</button>
+            <button type="button" data-c="cls" aria-pressed="false">分類</button>
+            <button type="button" data-c="hag" aria-pressed="false">地上高</button>
+            <button type="button" data-c="chg" aria-pressed="false" disabled>変化</button>
+          </div>
+          <p class="note" id="colorNote"></p>
+        </div>
+        <div class="group">
+          <label class="check"><input type="checkbox" id="groundOnly"> 木を消して地表面だけ表示</label>
+          <p class="note">レーザーが葉のすき間を抜けてとらえた地面の点だけを残します。</p>
+        </div>
+        <div class="group"><h3>点の大きさ</h3>
+          <div class="row"><label for="ptSize"><input type="range" id="ptSize" min="1" max="8" step="0.5" value="2"></label><span class="val" id="ptSizeV">2.0 px</span></div>
+        </div>
+        <div class="group"><h3>表示する高さの範囲</h3>
+          <div class="row"><label for="zLo"><input type="range" id="zLo" min="0" max="1000" value="0"></label><span class="val" id="zLoV"></span></div>
+          <div class="row"><label for="zHi"><input type="range" id="zHi" min="0" max="1000" value="1000"></label><span class="val" id="zHiV"></span></div>
+          <p class="note">下限を上げると地面が消え、樹冠だけを見られます。</p>
+        </div>
+        <div class="group"><h3>読み込みの設定</h3>
+          <div class="row"><label for="maxPts">表示点数の上限</label>
+            <select id="maxPts">
+              <option value="1000000">100万点（軽い）</option>
+              <option value="3000000" selected>300万点</option>
+              <option value="6000000">600万点</option>
+              <option value="10000000">1000万点（高性能PC）</option>
+            </select></div>
+          <p class="note">上限を超えるファイルは等間隔に間引いて読み込みます。次に開くファイルから反映されます。</p>
+        </div>
+      </div>
+
+      <div class="pane" id="tab-sec" hidden>
+        <div class="group"><h3>断面線</h3>
+          <p class="note" id="secNote">平面図の上でドラッグして、断面を見たい線を引いてください。</p>
+          <div class="row">
+            <button class="btn small" type="button" id="secEW">東西の断面を表示</button>
+            <button class="btn small" type="button" id="secNS">南北の断面を表示</button>
+          </div>
+        </div>
+        <div class="group"><h3>断面の幅（線の左右に含める範囲）</h3>
+          <div class="row"><label for="secW"><input type="range" id="secW" min="0.2" max="10" step="0.1" value="1"></label><span class="val" id="secWV">1.0 m</span></div>
+        </div>
+        <div class="group"><h3>断面を平行移動</h3>
+          <div class="row">
+            <button class="btn small" type="button" id="secPrev">◀ 手前へ</button>
+            <button class="btn small" type="button" id="secNext">奥へ ▶</button>
+            <span class="note">幅の分だけずらします</span>
+          </div>
+        </div>
+        <div class="group"><h3>縦の強調</h3>
+          <div class="seg" id="exagSeg">
+            <button type="button" data-e="1" aria-pressed="true">1:1（実形）</button>
+            <button type="button" data-e="2" aria-pressed="false">×2</button>
+            <button type="button" data-e="5" aria-pressed="false">×5</button>
+          </div>
+        </div>
+        <div class="group">
+          <label class="check"><input type="checkbox" id="secOnly3d"> 3Dビューも断面の範囲だけ表示</label>
+        </div>
+        <div class="group"><h3>数値の書き出し</h3>
+          <button class="btn" type="button" id="copyGround" disabled>地盤線の数値をコピー（1m間隔）</button>
+          <p class="note">距離と標高をタブ区切りでコピーします。Excelにそのまま貼り付けられます。</p>
+          <textarea class="copyfall" id="copyFallSec" hidden readonly aria-label="コピー用テキスト"></textarea>
+        </div>
+      </div>
+
+      <div class="pane" id="tab-tree" hidden>
+        <div class="group"><h3>地面の求め方</h3>
+          <div class="seg" id="groundSeg">
+            <button type="button" data-g="class" aria-pressed="true">Terraの地面分類を使う</button>
+            <button type="button" data-g="auto" aria-pressed="false">自動で推定</button>
+          </div>
+          <p class="note" id="groundNote"></p>
+        </div>
+        <div class="group"><h3>数える木の最低樹高</h3>
+          <div class="row"><label for="minH"><input type="range" id="minH" min="1" max="15" step="0.5" value="4"></label><span class="val" id="minHV">4.0 m</span></div>
+        </div>
+        <div class="group"><h3>樹頂点の探索半径</h3>
+          <div class="row"><label for="rMin"><input type="range" id="rMin" min="0.4" max="5" step="0.1" value="0.8"></label><span class="val" id="rMinV">0.8 m</span></div>
+          <label class="check"><input type="checkbox" id="rAuto" checked> 樹高に合わせて自動で広げる（針葉樹向け）</label>
+          <p class="note">2本が1本と数えられるときは半径を小さく、1本が2本に割れるときは大きくします。</p>
+        </div>
+        <div class="group"><h3>解析の細かさ</h3>
+          <div class="seg" id="resSeg">
+            <button type="button" data-r="0.25" aria-pressed="false">0.25 m</button>
+            <button type="button" data-r="0.5" aria-pressed="true">0.5 m</button>
+            <button type="button" data-r="1" aria-pressed="false">1.0 m</button>
+          </div>
+        </div>
+        <button class="btn primary" type="button" id="runTrees">木の本数を数える</button>
+        <div class="result" id="treeResult" hidden>
+          <div class="count"><b id="tCount">0</b><span>本</span></div>
+          <dl class="kv" id="tKv"></dl>
+          <p class="note" id="tTruth" hidden></p>
+          <div><div class="label"><span>樹高の分布</span><span>本数</span></div><canvas id="hist"></canvas></div>
+          <label class="check"><input type="checkbox" id="showTops" checked> 3Dと平面図に樹頂点を表示</label>
+          <button class="btn" type="button" id="copyTrees">一覧をコピー（Excel用）</button>
+          <textarea class="copyfall" id="copyFallTree" hidden readonly aria-label="コピー用テキスト"></textarea>
+          <div class="tablewrap"><table><thead><tr><th>No.</th><th>X</th><th>Y</th><th>樹高</th><th>樹冠径</th></tr></thead><tbody id="tBody"></tbody></table></div>
+        </div>
+        <p class="note">現地で数えた本数と一度照らし合わせて、上の設定を調整してください。</p>
+      </div>
+
+      <div class="pane" id="tab-cmp" hidden>
+        <div class="group"><h3>時期の違う2つのデータを比べる</h3>
+          <p class="note">同じ範囲を時期を変えて測ると、差から木の成長・伐採や倒木・地盤の崩れや堆積が分かります。1回分のデータだけでは成長は分かりません。</p>
+        </div>
+        <div class="group"><h3>前回のデータ</h3>
+          <input type="file" id="fileIn2" accept=".las,.laz" multiple hidden>
+          <div class="row">
+            <button class="btn" type="button" id="open2">前回のLASを開く（複数可）</button>
+            <button class="btn" type="button" id="samplePast" hidden>サンプルの前回データを使う</button>
+          </div>
+          <dl class="kv" id="p2Kv"></dl>
+        </div>
+        <div id="cmpBody" hidden>
+          <div class="group"><h3>見る変化</h3>
+            <div class="seg" id="layerSeg">
+              <button type="button" data-l="chm" aria-pressed="true">樹高の変化</button>
+              <button type="button" data-l="dtm" aria-pressed="false">地盤の変化</button>
+            </div>
+          </div>
+          <div class="group"><h3>変化なしとみなす幅</h3>
+            <div class="row"><label for="cThr"><input type="range" id="cThr" min="0.05" max="1" step="0.05" value="0.3"></label><span class="val" id="cThrV">±0.30 m</span></div>
+            <p class="note">測量の誤差を変化と見誤らないための幅です。</p>
+          </div>
+          <div class="group"><h3>色の幅</h3>
+            <div class="row"><label for="cRange"><input type="range" id="cRange" min="0.5" max="10" step="0.5" value="2"></label><span class="val" id="cRangeV">±2.0 m</span></div>
+            <div class="legend" style="position:static" id="cmpLegend"></div>
+          </div>
+          <div class="group">
+            <label class="check"><input type="checkbox" id="cOnMap" checked> 平面図に変化を表示</label>
+            <label class="check"><input type="checkbox" id="cOnProf" checked> 断面図に前回の点を重ねる</label>
+          </div>
+          <button class="btn primary" type="button" id="runCmp">比較を計算しなおす</button>
+          <div class="result" id="cmpResult"></div>
+          <p class="note">木の成長を見るなら1年以上あけて、同じ季節・同じ高度・同じ設定で飛ぶと差がはっきり出ます。樹頂点の設定は「樹木」タブの値を使います。</p>
+        </div>
+      </div>
+
+      <div class="pane" id="tab-info" hidden>
+        <dl class="kv" id="infoKv"></dl>
+        <div class="group" id="filesGroup" hidden><h3>結合したファイル</h3><dl class="kv" id="filesKv"></dl></div>
+        <div class="group"><h3>分類ごとの点数（表示中）</h3><dl class="kv" id="clsKv"></dl></div>
+        <div class="group"><h3>操作</h3>
+          <p class="note">左ドラッグで回転、右ドラッグで移動、ホイールで拡大縮小。スマホは1本指で回転、2本指で移動と拡大です。</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ===== 解析コア（画面に依存しない処理） ===== */
+const PC = (() => {
+  const RGB_OFF = {2:20, 3:28, 5:28, 7:30, 8:30, 10:30};
+  const SKIP = c => c === 7 || c === 18;
+
+  async function readHeader(file){
+    const name = file.name || '';
+    if (/\.laz$/i.test(name)) throw new Error('LAZ');
+    const hb = new DataView(await file.slice(0, Math.min(file.size, 512)).arrayBuffer());
+    if (hb.byteLength < 227) throw new Error('NOTLAS');
+    const sig = String.fromCharCode(hb.getUint8(0), hb.getUint8(1), hb.getUint8(2), hb.getUint8(3));
+    if (sig !== 'LASF') throw new Error('NOTLAS');
+    const vMaj = hb.getUint8(24), vMin = hb.getUint8(25);
+    const hdrSize = hb.getUint16(94, true), dataOff = hb.getUint32(96, true);
+    const fmtRaw = hb.getUint8(104);
+    if (fmtRaw & 0xC0) throw new Error('LAZ');
+    const fmt = fmtRaw & 0x3f, recLen = hb.getUint16(105, true);
+    if (fmt > 10 || recLen < 20) throw new Error('FMT');
+    let count = hb.getUint32(107, true);
+    if (vMin >= 4 && hdrSize >= 375 && hb.byteLength >= 255) {
+      const c64 = Number(hb.getBigUint64(247, true)); if (c64 > 0) count = c64;
+    }
+    const avail = Math.floor((file.size - dataOff) / recLen);
+    if (count > avail) count = avail;
+    const f64 = o => hb.getFloat64(o, true);
+    return { file, name, version: vMaj + '.' + vMin, fmt, recLen, dataOff, count: Math.max(0, count),
+      scale: [f64(131), f64(139), f64(147)], off: [f64(155), f64(163), f64(171)],
+      minX: f64(187), maxX: f64(179), minY: f64(203), maxY: f64(195) };
+  }
+
+  /* 複数のLASを1つの点群として読み込む（Terraの分割出力をまとめて表示） */
+  async function readLAS(files, maxPts, onProg){
+    if (!Array.isArray(files)) files = [files];
+    const H = [];
+    for (const f of files) H.push(await readHeader(f));
+    const total = H.reduce((a, h) => a + h.count, 0);
+    if (total <= 0) throw new Error('EMPTY');
+    const ux0 = Math.min(...H.map(h => h.minX)), ux1 = Math.max(...H.map(h => h.maxX));
+    const uy0 = Math.min(...H.map(h => h.minY)), uy1 = Math.max(...H.map(h => h.maxY));
+    if (H.length > 1 && (ux1 - ux0 > 50000 || uy1 - uy0 > 50000)) throw new Error('FAR');
+    const stride = Math.max(1, Math.ceil(total / maxPts));
+    const nOut = H.reduce((a, h) => a + (h.count ? Math.floor((h.count - 1) / stride) + 1 : 0), 0);
+    const origin = { x: Math.round((ux0 + ux1) / 2), y: Math.round((uy0 + uy1) / 2), z: 0 };
+    const pos = new Float32Array(nOut * 3), cls = new Uint8Array(nOut), inten = new Uint16Array(nOut), ret = new Uint8Array(nOut);
+    const allRgb = H.every(h => RGB_OFF[h.fmt]);
+    const rgb = allRgb ? new Uint8Array(nOut * 3) : null;
+    let o = 0, done = 0;
+    for (const h of H) {
+      const { file, fmt, recLen, dataOff, count } = h, [sx, sy, sz] = h.scale, [ox, oy, oz] = h.off;
+      const rgbOff = RGB_OFF[fmt], ext = fmt >= 6, o0 = o;
+      const rgb16 = rgb ? new Uint16Array((Math.floor((count - 1) / stride) + 1) * 3) : null;
+      const per = Math.max(1, Math.floor((48 * 1024 * 1024) / recLen));
+      let rgbMax = 0;
+      for (let start = 0; start < count; start += per) {
+        const end = Math.min(count, start + per);
+        const first = Math.ceil(start / stride) * stride;
+        if (first < end) {
+          const dv = new DataView(await file.slice(dataOff + start * recLen, dataOff + end * recLen).arrayBuffer());
+          for (let i = first; i < end && o < nOut; i += stride) {
+            const p = (i - start) * recLen;
+            pos[o*3]   = dv.getInt32(p, true) * sx + ox - origin.x;
+            pos[o*3+1] = dv.getInt32(p+4, true) * sy + oy - origin.y;
+            pos[o*3+2] = dv.getInt32(p+8, true) * sz + oz - origin.z;
+            inten[o] = dv.getUint16(p+12, true);
+            const rb = dv.getUint8(p+14);
+            if (ext) { ret[o] = rb & 15; cls[o] = dv.getUint8(p+16); }
+            else { ret[o] = rb & 7; cls[o] = dv.getUint8(p+15) & 31; }
+            if (rgb16) {
+              const q = (o - o0) * 3, r = dv.getUint16(p+rgbOff, true), g = dv.getUint16(p+rgbOff+2, true), b = dv.getUint16(p+rgbOff+4, true);
+              rgb16[q] = r; rgb16[q+1] = g; rgb16[q+2] = b;
+              if (r > rgbMax) rgbMax = r; if (g > rgbMax) rgbMax = g; if (b > rgbMax) rgbMax = b;
+            }
+            o++;
+          }
+        }
+        if (onProg) onProg((done + end) / total, h.name);
+        await new Promise(r => setTimeout(r, 0));
+      }
+      done += count;
+      if (rgb16) { const k = rgbMax > 255 ? 1/257 : 1; const m = (o - o0) * 3;
+        for (let j = 0; j < m; j++) rgb[o0 * 3 + j] = Math.min(255, Math.round(rgb16[j] * k)); }
+      h.read = o - o0;
+    }
+    const one = H.length === 1;
+    return finalize({
+      n: o, pos: o < nOut ? pos.slice(0, o*3) : pos, cls: cls.subarray(0, o), inten: inten.subarray(0, o), ret: ret.subarray(0, o),
+      rgb: rgb ? rgb.subarray(0, o * 3) : null, origin,
+      meta: { name: one ? H[0].name : `${H.length}ファイルを結合（${H[0].name} ほか）`,
+        version: [...new Set(H.map(h => h.version))].join(' / '), fmt: [...new Set(H.map(h => h.fmt))].join(' / '),
+        recLen: H[0].recLen, total, stride, scale: H[0].scale,
+        files: H.map(h => ({ name: h.name, count: h.count, read: h.read, rgb: !!RGB_OFF[h.fmt] })) }
+    });
+  }
+
+  function finalize(P){
+    let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity, e = Infinity, f = -Infinity;
+    const cc = new Uint32Array(256), pos = P.pos;
+    for (let i = 0; i < P.n; i++) {
+      const x = pos[i*3], y = pos[i*3+1], z = pos[i*3+2];
+      if (x < a) a = x; if (x > b) b = x; if (y < c) c = y; if (y > d) d = y;
+      cc[P.cls[i]]++;
+      if (SKIP(P.cls[i])) continue;
+      if (z < e) e = z; if (z > f) f = z;
+    }
+    if (e === Infinity) { e = 0; f = 1; }
+    P.bounds = { minX: a, maxX: b, minY: c, maxY: d, minZ: e, maxZ: f };
+    P.classCount = cc; P.hag = null;
+    return P;
+  }
+
+  /* ---- サンプル（スギ林を想定した合成データ） ---- */
+  function genSample(past){
+    let s = 20261106; const rnd = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    const W = 180, H = 140;
+    const terr0 = (x, y) => 128 + 0.09 * x + 5.5 * Math.sin(x / 33) * Math.cos(y / 27) + 2.5 * Math.sin(y / 14 + 1);
+    // 今回だけ：斜面の小さな崩壊（上部が下がり、下部に堆積）
+    const slide = (x, y) => -1.6 * Math.exp(-((x - 72) ** 2 + (y - 48) ** 2) / 30) + 1.2 * Math.exp(-((x - 70) ** 2 + (y - 36) ** 2) / 40);
+    const terr = (x, y) => terr0(x, y) + (past ? 0 : slide(x, y));
+    const roadY = x => 8 + 14 * Math.sin(x / 32);
+    const inClear = (x, y) => (x + 45) ** 2 + (y - 32) ** 2 < 22 * 22;
+    const onRoad = (x, y) => Math.abs(y - roadY(x)) < 3.2;
+    const trees = [], cell = 4, hash = new Map();
+    const key = (i, j) => i * 10007 + j;
+    for (let k = 0; k < 30000; k++) {
+      const x = -W/2 + 4 + rnd() * (W - 8), y = -H/2 + 4 + rnd() * (H - 8);
+      if (inClear(x, y) || Math.abs(y - roadY(x)) < 6) continue;
+      const i = Math.floor(x / cell), j = Math.floor(y / cell); let ok = true;
+      for (let di = -1; di <= 1 && ok; di++) for (let dj = -1; dj <= 1 && ok; dj++) {
+        const L = hash.get(key(i + di, j + dj)); if (!L) continue;
+        for (const t of L) if ((t.x - x) ** 2 + (t.y - y) ** 2 < 3.6 * 3.6) { ok = false; break; }
+      }
+      if (!ok) continue;
+      const h = 9 + 15 * Math.pow(rnd(), 0.8), R = 0.7 + 0.12 * h;
+      const t = { x, y, g: terr(x, y), h, R };
+      trees.push(t); const kk = key(i, j); if (!hash.has(kk)) hash.set(kk, []); hash.get(kk).push(t);
+    }
+    // 2時期で同じ木：前回は成長分だけ低い。今回は一部を伐採
+    const hash01 = k => { const v = Math.sin(k * 12.9898 + 78.233) * 43758.5453; return v - Math.floor(v); };
+    trees.forEach((t, k) => {
+      t.grow = 0.35 + 0.6 * hash01(k);
+      if (past) { t.h = Math.max(2, t.h - t.grow); t.R = 0.7 + 0.12 * t.h; }
+      t.felled = !past && (t.x - 52) ** 2 + (t.y + 36) ** 2 < 13 * 13;
+      t.g = terr(t.x, t.y);
+    });
+    const X = [], C = [], I = [], RGB = [];
+    const push = (x, y, z, c, it, r, g, b) => { X.push(x, y, z); C.push(c); I.push(it); RGB.push(r, g, b); };
+    const under = (x, y) => {
+      const i = Math.floor(x / cell), j = Math.floor(y / cell);
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+        const L = hash.get(key(i + di, j + dj)); if (!L) continue;
+        for (const t of L) if (!t.felled && (t.x - x) ** 2 + (t.y - y) ** 2 < t.R * t.R) return true;
+      }
+      return false;
+    };
+    const step = 0.24;
+    for (let x = -W/2; x < W/2; x += step) for (let y = -H/2; y < H/2; y += step) {
+      const px = x + (rnd() - 0.5) * step, py = y + (rnd() - 0.5) * step;
+      const road = onRoad(px, py), clear = inClear(px, py);
+      if (!road && !clear && under(px, py) && rnd() > 0.22) continue;
+      const z = terr(px, py) + (rnd() - 0.5) * 0.06;
+      const n = (rnd() - 0.5) * 16;
+      if (road) push(px, py, z, 2, 3800 + rnd() * 600, 156 + n, 146 + n, 128 + n);
+      else if (clear) push(px, py, z + rnd() * 0.15, 2, 2400 + rnd() * 700, 104 + n, 128 + n, 64 + n);
+      else push(px, py, z, 2, 2000 + rnd() * 600, 92 + n, 78 + n, 58 + n);
+    }
+    for (let k = 0; k < 120; k++) { // 下草・低木
+      const cx = -45 + (rnd() - 0.5) * 36, cy = 32 + (rnd() - 0.5) * 36; if (!inClear(cx, cy)) continue;
+      const hh = 0.5 + rnd() * 1.3, rr = 0.6 + rnd() * 0.8;
+      for (let q = 0; q < 50; q++) { const a = rnd() * 6.283, r = Math.sqrt(rnd()) * rr; const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+        push(x, y, terr(x, y) + hh * (1 - (r / rr) ** 2) * (0.7 + 0.3 * rnd()), 3, 1500 + rnd() * 500, 86, 128, 58); }
+    }
+    for (const t of trees) {
+      if (t.felled) continue;
+      const top = t.g + t.h, depth = 0.62 * t.h;
+      const n = Math.round(Math.PI * t.R * t.R * 30 * (0.8 + 0.4 * rnd()));
+      for (let q = 0; q < n; q++) {
+        const u = Math.sqrt(rnd()), r = u * t.R, a = rnd() * 6.283;
+        let z = top - u * depth * (0.9 + 0.2 * rnd()) - rnd() * 0.35;
+        if (rnd() < 0.15) z -= rnd() * depth * 0.3;
+        const lt = 1 - u * 0.4, n2 = (rnd() - 0.5) * 18;
+        push(t.x + Math.cos(a) * r, t.y + Math.sin(a) * r, z, 5, 900 + rnd() * 1100, (38 + n2) * lt + 10, (78 + n2) * lt + 18, (42 + n2) * lt + 8);
+      }
+      for (let q = 0; q < 8; q++) push(t.x + (rnd() - 0.5) * 0.3, t.y + (rnd() - 0.5) * 0.3, t.g + 0.5 + rnd() * (t.h - depth - 0.5), 5, 1200, 96, 74, 52);
+    }
+    const n = C.length;
+    const P = { n, pos: Float32Array.from(X), cls: Uint8Array.from(C), inten: Uint16Array.from(I), ret: new Uint8Array(n).fill(1),
+      rgb: Uint8Array.from(RGB.map(v => Math.max(0, Math.min(255, Math.round(v))))), origin: { x: 41940, y: -101160, z: 0 },
+      meta: { name: past ? 'サンプル前回（2年前を想定）' : 'サンプル（合成したスギ林）', version: '—', fmt: '—', recLen: '—', total: n, stride: 1,
+        scale: [0.001, 0.001, 0.001], sample: true, trees: trees.filter(t => !t.felled).map(t => t.h),
+        truth: past ? null : { felled: trees.filter(t => t.felled).length, meanGrow: trees.filter(t => !t.felled).reduce((a, t) => a + t.grow, 0) / trees.filter(t => !t.felled).length } } };
+    return finalize(P);
+  }
+
+  /* ---- 地面（DTM） ---- */
+  function filt(src, nx, ny, r, isMin){
+    const tmp = new Float32Array(nx * ny), out = new Float32Array(nx * ny);
+    const miss = isMin ? Infinity : -Infinity;
+    const val = v => v === Infinity ? miss : v;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      let m = miss; const a = Math.max(0, i - r), b = Math.min(nx - 1, i + r);
+      for (let k = a; k <= b; k++) { const v = val(src[j * nx + k]); if (isMin ? v < m : v > m) m = v; }
+      tmp[j * nx + i] = m;
+    }
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      let m = miss; const a = Math.max(0, j - r), b = Math.min(ny - 1, j + r);
+      for (let k = a; k <= b; k++) { const v = tmp[k * nx + i]; if (isMin ? v < m : v > m) m = v; }
+      out[j * nx + i] = m === -Infinity ? Infinity : m;
+    }
+    return out;
+  }
+  function fillHoles(g, nx, ny){
+    let missing = 0; for (let k = 0; k < g.length; k++) if (g[k] === Infinity) missing++;
+    let it = 0;
+    while (missing > 0 && it < 400) {
+      const nxt = g.slice(); let changed = 0;
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const k = j * nx + i; if (g[k] !== Infinity) continue;
+        let s = 0, c = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+          const v = g[jj * nx + ii]; if (v !== Infinity) { s += v; c++; }
+        }
+        if (c) { nxt[k] = s / c; changed++; }
+      }
+      g.set(nxt); missing -= changed; it++; if (!changed) break;
+    }
+    if (missing > 0) { let s = 0, c = 0; for (const v of g) if (v !== Infinity) { s += v; c++; } const m = c ? s / c : 0; for (let k = 0; k < g.length; k++) if (g[k] === Infinity) g[k] = m; }
+  }
+  function smooth(g, nx, ny){
+    const o = new Float32Array(g.length);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      let s = 0, w = 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        const ww = (di ? 1 : 2) * (dj ? 1 : 2); s += g[jj * nx + ii] * ww; w += ww;
+      }
+      o[j * nx + i] = s / w;
+    }
+    return o;
+  }
+  function computeGround(P, method){
+    const b = P.bounds, gs = 1.0;
+    const nx = Math.ceil((b.maxX - b.minX) / gs) + 1, ny = Math.ceil((b.maxY - b.minY) / gs) + 1;
+    let grid = new Float32Array(nx * ny).fill(Infinity);
+    const useCls = method === 'class' && P.classCount[2] > P.n * 0.005;
+    const pos = P.pos;
+    for (let i = 0; i < P.n; i++) {
+      const c = P.cls[i]; if (SKIP(c)) continue; if (useCls && c !== 2) continue;
+      const ix = Math.floor((pos[i*3] - b.minX) / gs), iy = Math.floor((pos[i*3+1] - b.minY) / gs), k = iy * nx + ix;
+      if (pos[i*3+2] < grid[k]) grid[k] = pos[i*3+2];
+    }
+    if (!useCls) grid = filt(filt(grid, nx, ny, 4, true), nx, ny, 4, false);
+    fillHoles(grid, nx, ny);
+    grid = smooth(grid, nx, ny);
+    const D = { grid, nx, ny, gs, x0: b.minX, y0: b.minY, useCls };
+    const hag = new Float32Array(P.n);
+    for (let i = 0; i < P.n; i++) hag[i] = pos[i*3+2] - dtmAt(D, pos[i*3], pos[i*3+1]);
+    P.hag = hag; P.dtm = D;
+    return D;
+  }
+  function dtmAt(D, x, y){
+    let fx = (x - D.x0) / D.gs - 0.5, fy = (y - D.y0) / D.gs - 0.5;
+    fx = Math.max(0, Math.min(D.nx - 1.001, fx)); fy = Math.max(0, Math.min(D.ny - 1.001, fy));
+    const i = Math.floor(fx), j = Math.floor(fy), u = fx - i, v = fy - j, g = D.grid, nx = D.nx;
+    const i1 = Math.min(i + 1, D.nx - 1), j1 = Math.min(j + 1, D.ny - 1);
+    return (g[j*nx+i] * (1-u) + g[j*nx+i1] * u) * (1-v) + (g[j1*nx+i] * (1-u) + g[j1*nx+i1] * u) * v;
+  }
+
+  /* ---- 樹木の検出（樹冠高モデル＋局所最大） ---- */
+  function analyzeTrees(P, D, opt){
+    const b = P.bounds, c = opt.res;
+    const nx = Math.ceil((b.maxX - b.minX) / c) + 1, ny = Math.ceil((b.maxY - b.minY) / c) + 1;
+    const raw = new Float32Array(nx * ny).fill(-1), pos = P.pos;
+    for (let i = 0; i < P.n; i++) {
+      if (SKIP(P.cls[i])) continue;
+      const ix = Math.floor((pos[i*3] - b.minX) / c), iy = Math.floor((pos[i*3+1] - b.minY) / c), k = iy * nx + ix;
+      let h = P.hag[i]; if (h < 0) h = 0; if (h > 80) continue;
+      if (h > raw[k]) raw[k] = h;
+    }
+    let dataCells = 0; const filled = raw.slice();
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i; if (raw[k] >= 0) { dataCells++; continue; }
+      let m = -1;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        const v = raw[jj * nx + ii]; if (v > m) m = v;
+      }
+      filled[k] = m < 0 ? 0 : m;
+    }
+    const sm = smooth(filled, nx, ny);
+    const tops = [];
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i, h = sm[k]; if (h < opt.minH) continue;
+      const r = opt.auto ? Math.max(opt.rMin, 0.4 + 0.045 * h) : opt.rMin;
+      const rc = r / c, R = Math.ceil(rc), r2 = rc * rc; let isMax = true;
+      for (let dj = -R; dj <= R && isMax; dj++) {
+        const jj = j + dj; if (jj < 0 || jj >= ny) continue;
+        for (let di = -R; di <= R; di++) {
+          if (di * di + dj * dj > r2 || (!di && !dj)) continue;
+          const ii = i + di; if (ii < 0 || ii >= nx) continue;
+          const kk = jj * nx + ii, v = sm[kk];
+          if (v > h || (v === h && kk < k)) { isMax = false; break; }
+        }
+      }
+      if (!isMax) continue;
+      let th = 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        const v = raw[jj * nx + ii]; if (v > th) th = v;
+      }
+      const x = b.minX + (i + 0.5) * c, y = b.minY + (j + 0.5) * c;
+      tops.push({ x, y, h: Math.max(th, h), g: dtmAt(D, x, y), i, j, cells: 0 });
+    }
+    // 樹冠の広がり：近い樹頂点に割り当て
+    const lab = new Int32Array(nx * ny).fill(-1), dist = new Float32Array(nx * ny).fill(Infinity);
+    tops.forEach((t, ti) => {
+      const maxR = Math.min(8, Math.max(1.5, 0.45 * t.h)) / c, R = Math.ceil(maxR), floor = Math.max(opt.minH * 0.5, 0.45 * t.h);
+      for (let dj = -R; dj <= R; dj++) {
+        const jj = t.j + dj; if (jj < 0 || jj >= ny) continue;
+        for (let di = -R; di <= R; di++) {
+          const ii = t.i + di; if (ii < 0 || ii >= nx) continue;
+          const d2 = di * di + dj * dj; if (d2 > maxR * maxR) continue;
+          const kk = jj * nx + ii; if (sm[kk] < floor) continue;
+          if (d2 < dist[kk]) { dist[kk] = d2; lab[kk] = ti; }
+        }
+      }
+    });
+    for (let k = 0; k < lab.length; k++) if (lab[k] >= 0) tops[lab[k]].cells++;
+    tops.forEach(t => { t.crown = 2 * Math.sqrt(t.cells * c * c / Math.PI); delete t.i; delete t.j; delete t.cells; });
+    tops.sort((a, b2) => b2.h - a.h);
+    return { tops, areaHa: dataCells * c * c / 10000, res: c };
+  }
+
+  /* ---- 断面の抽出 ---- */
+  function profile(P, sec){
+    const dx = sec.bx - sec.ax, dy = sec.by - sec.ay, L = Math.hypot(dx, dy);
+    const ux = dx / L, uy = dy / L, hw = sec.w / 2, pos = P.pos;
+    const idx = [];
+    for (let i = 0; i < P.n; i++) {
+      if (SKIP(P.cls[i])) continue;
+      const px = pos[i*3] - sec.ax, py = pos[i*3+1] - sec.ay;
+      const s = px * ux + py * uy; if (s < 0 || s > L) continue;
+      const d = -px * uy + py * ux; if (d < -hw || d > hw) continue;
+      idx.push(i);
+    }
+    let sel = idx; const cap = 400000;
+    if (idx.length > cap) { const st = idx.length / cap; sel = []; for (let k = 0; k < cap; k++) sel.push(idx[Math.floor(k * st)]); }
+    const n = sel.length, S = new Float32Array(n), Z = new Float32Array(n), I = new Uint32Array(n);
+    let zmin = Infinity, zmax = -Infinity, hasG = false;
+    for (let k = 0; k < n; k++) {
+      const i = sel[k]; I[k] = i;
+      S[k] = (pos[i*3] - sec.ax) * ux + (pos[i*3+1] - sec.ay) * uy; Z[k] = pos[i*3+2];
+      if (Z[k] < zmin) zmin = Z[k]; if (Z[k] > zmax) zmax = Z[k];
+      if (P.cls[i] === 2) hasG = true;
+    }
+    // 地盤線：0.5 m ごとの最低点（地面分類があればそれを優先）
+    const bw = 0.5, nb = Math.max(1, Math.ceil(L / bw)), gl = new Float32Array(nb).fill(Infinity);
+    for (let k = 0; k < n; k++) {
+      if (hasG && P.cls[I[k]] !== 2) continue;
+      const bi = Math.min(nb - 1, Math.floor(S[k] / bw)); if (Z[k] < gl[bi]) gl[bi] = Z[k];
+    }
+    return { n, S, Z, I, L, zmin, zmax, ground: gl, bw, hasG, total: idx.length };
+  }
+
+  /* ---- 2時期の比較 ---- */
+  function layers(P, b, res, nx, ny){
+    const chm = new Float32Array(nx * ny).fill(NaN), cov = new Uint8Array(nx * ny), pos = P.pos;
+    for (let i = 0; i < P.n; i++) {
+      if (SKIP(P.cls[i])) continue;
+      const x = pos[i*3], y = pos[i*3+1]; if (x < b.minX || x >= b.maxX || y < b.minY || y >= b.maxY) continue;
+      const k = Math.floor((y - b.minY) / res) * nx + Math.floor((x - b.minX) / res);
+      cov[k] = 1; const h = P.hag[i] > 0 ? P.hag[i] : 0; if (!(chm[k] >= h)) chm[k] = h;
+    }
+    const f = chm.slice(), dtm = new Float32Array(nx * ny).fill(NaN);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i; let near = cov[k], m = -1;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+        const kk = jj * nx + ii; if (cov[kk]) { near = 1; if (chm[kk] > m) m = chm[kk]; }
+      }
+      if (!near) continue;
+      if (isNaN(chm[k])) f[k] = m;
+      dtm[k] = dtmAt(P.dtm, b.minX + (i + 0.5) * res, b.minY + (j + 0.5) * res);
+    }
+    return { chm: f, dtm };
+  }
+  function compare(Pn, Po, opt){
+    const a = Pn.bounds, c = Po.bounds;
+    const b = { minX: Math.max(a.minX, c.minX), maxX: Math.min(a.maxX, c.maxX), minY: Math.max(a.minY, c.minY), maxY: Math.min(a.maxY, c.maxY) };
+    if (b.maxX - b.minX < 2 || b.maxY - b.minY < 2) throw new Error('NOOVERLAP');
+    const res = opt.res, nx = Math.ceil((b.maxX - b.minX) / res), ny = Math.ceil((b.maxY - b.minY) / res);
+    const A = layers(Pn, b, res, nx, ny), B = layers(Po, b, res, nx, ny);
+    const dChm = new Float32Array(nx * ny).fill(NaN), dDtm = new Float32Array(nx * ny).fill(NaN);
+    const ca = res * res, thr = opt.thr;
+    const st = { both: 0, canopy: 0, canopySum: 0, grow: 0, shrink: 0, lostArea: 0, cut: 0, fill: 0, gChanged: 0 };
+    for (let k = 0; k < nx * ny; k++) {
+      if (isNaN(A.dtm[k]) || isNaN(B.dtm[k])) continue;
+      st.both++;
+      const dg = A.dtm[k] - B.dtm[k]; dDtm[k] = dg;
+      if (dg > thr) { st.fill += dg * ca; st.gChanged++; } else if (dg < -thr) { st.cut -= dg * ca; st.gChanged++; }
+      if (isNaN(A.chm[k]) || isNaN(B.chm[k])) continue;
+      const dh = A.chm[k] - B.chm[k]; dChm[k] = dh;
+      if (A.chm[k] >= opt.minH && B.chm[k] >= opt.minH) { st.canopy++; st.canopySum += dh; if (dh > thr) st.grow++; else if (dh < -thr) st.shrink++; }
+      if (B.chm[k] >= opt.minH && dh < -3) st.lostArea++;
+    }
+    const S = { areaHa: st.both * ca / 10000, meanCanopy: st.canopy ? st.canopySum / st.canopy : 0, growHa: st.grow * ca / 10000,
+      shrinkHa: st.shrink * ca / 10000, lostHa: st.lostArea * ca / 10000, cut: st.cut, fill: st.fill, gChangedHa: st.gChanged * ca / 10000 };
+    // 1本ごとの照合
+    const inB = t => t.x >= b.minX && t.x < b.maxX && t.y >= b.minY && t.y < b.maxY;
+    const tn = analyzeTrees(Pn, Pn.dtm, opt.tree).tops.filter(inB), to = analyzeTrees(Po, Po.dtm, opt.tree).tops.filter(inB);
+    const cell = 2, H = new Map(), key = (i, j) => i * 100003 + j;
+    to.forEach((t, i) => { const k = key(Math.floor(t.x / cell), Math.floor(t.y / cell)); if (!H.has(k)) H.set(k, []); H.get(k).push(i); });
+    const used = new Uint8Array(to.length), pairs = [], fresh = [];
+    for (const t of tn) {
+      const ci = Math.floor(t.x / cell), cj = Math.floor(t.y / cell); let best = -1, bd = 1.5 * 1.5;
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) for (const i of H.get(key(ci + di, cj + dj)) || []) {
+        if (used[i]) continue; const d = (to[i].x - t.x) ** 2 + (to[i].y - t.y) ** 2; if (d < bd) { bd = d; best = i; }
+      }
+      if (best >= 0) { used[best] = 1; pairs.push({ x: t.x, y: t.y, g: t.g, hNew: t.h, hOld: to[best].h, dh: t.h - to[best].h }); }
+      else fresh.push(t);
+    }
+    const lost = [];
+    to.forEach((t, i) => {
+      if (used[i]) return;
+      const k = Math.floor((t.y - b.minY) / res) * nx + Math.floor((t.x - b.minX) / res);
+      if (!(A.chm[k] >= t.h * 0.5)) lost.push(t);
+    });
+    S.pairs = pairs.length; S.meanGrow = pairs.length ? pairs.reduce((s2, q) => s2 + q.dh, 0) / pairs.length : 0;
+    S.medGrow = pairs.length ? pairs.map(q => q.dh).sort((x, y) => x - y)[pairs.length >> 1] : 0;
+    return { b, res, nx, ny, dChm, dDtm, S, pairs, lost, fresh, nNew: tn.length, nOld: to.length };
+  }
+
+  /* 共有ページ用の軽量フォーマット（LUPC）：位置は範囲内の16bit量子化＋RGB・分類・反射強度 */
+  function readPacked(buf){
+    const dv = new DataView(buf);
+    if (String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'LUPC') throw new Error('NOTLUPC');
+    const n = dv.getUint32(8, true), nameLen = dv.getUint16(12, true);
+    const f = k => dv.getFloat64(16 + k * 8, true);
+    const mn = [f(0), f(1), f(2)], mx = [f(3), f(4), f(5)], oz = f(6);
+    const name = new TextDecoder().decode(new Uint8Array(buf, 72, nameLen));
+    let o = 72 + nameLen; o += (4 - o % 4) % 4;
+    const q = new Uint16Array(buf, o, n * 3); o += n * 6;
+    const rgb = new Uint8Array(buf, o, n * 3).slice(); o += n * 3;
+    const cls = new Uint8Array(buf, o, n).slice(); o += n;
+    const it8 = new Uint8Array(buf, o, n);
+    const pos = new Float32Array(n * 3), inten = new Uint16Array(n);
+    for (let k = 0; k < 3; k++) { const s = (mx[k] - mn[k]) / 65535; for (let i = 0; i < n; i++) pos[i*3+k] = mn[k] + q[i*3+k] * s; }
+    for (let i = 0; i < n; i++) inten[i] = it8[i] * 256;
+    return finalize({ n, pos, cls, inten, ret: new Uint8Array(n).fill(1), rgb, origin: { x: 0, y: 0, z: oz },
+      meta: { name, version: '—', fmt: '共有用', recLen: '—', total: n, stride: 1, scale: ['5mm程度', '', ''], packed: true } });
+  }
+
+  return { readLAS, readPacked, genSample, computeGround, analyzeTrees, profile, dtmAt, compare, rebound: finalize };
+})();
+if (typeof module !== 'undefined') module.exports = PC;
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+/* ===== 画面 ===== */
+(() => {
+const $ = s => document.querySelector(s);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = (v, d = 2) => Number(v).toLocaleString('ja-JP', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+const ST = { P: null, mode: 'elev', ptSize: 2, sec: null, secW: 1, exag: 1, secOnly: false, ground: 'class', res: 0.5, trees: null, showTops: true, prof: null,
+  P2: null, cmp: null, layer: 'chm', cOnMap: true, cOnProf: true, prof2: null, cThr: 0.3, cRange: 2 };
+
+/* ---- 色 ---- */
+const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function makeLUT(stops){
+  const lut = new Uint8Array(256 * 3), S = stops.map(([t, h]) => [t, hex(h)]);
+  for (let k = 0; k < 256; k++) {
+    const t = k / 255; let a = 0; while (a < S.length - 2 && t > S[a + 1][0]) a++;
+    const [t0, c0] = S[a], [t1, c1] = S[a + 1], u = Math.max(0, Math.min(1, (t - t0) / (t1 - t0)));
+    for (let q = 0; q < 3; q++) lut[k * 3 + q] = Math.round(c0[q] + (c1[q] - c0[q]) * u);
+  }
+  return lut;
+}
+const ELEV = [[0, '#2c5d8f'], [0.25, '#36a3a0'], [0.5, '#8cc363'], [0.75, '#ecc94b'], [1, '#d4523b']];
+const HAGR = [[0, '#8a6b4b'], [0.04, '#6f8f4a'], [0.35, '#3fa36b'], [0.7, '#c9cf4f'], [1, '#f08a3c']];
+const LUT_E = makeLUT(ELEV), LUT_H = makeLUT(HAGR);
+const DIV = { chm: [[0, '#d2462e'], [0.5, '#9aa39f'], [1, '#3bb35e']], dtm: [[0, '#d2462e'], [0.5, '#9aa39f'], [1, '#3a80d6']] };
+const LUT_D = { chm: makeLUT(DIV.chm), dtm: makeLUT(DIV.dtm) };
+const DIV_TXT = { chm: ['低くなった（伐採・倒木）', '伸びた'], dtm: ['下がった（侵食・崩壊）', '上がった（堆積）'] };
+function cmpAt(x, y){
+  const c = ST.cmp; const i = Math.floor((x - c.b.minX) / c.res), j = Math.floor((y - c.b.minY) / c.res);
+  if (i < 0 || j < 0 || i >= c.nx || j >= c.ny) return NaN;
+  return (ST.layer === 'chm' ? c.dChm : c.dDtm)[j * c.nx + i];
+}
+function divColor(v){
+  const t = Math.max(0, Math.min(255, (v / ST.cRange * 0.5 + 0.5) * 255)) | 0, L = LUT_D[ST.layer];
+  return [L[t*3], L[t*3+1], L[t*3+2]];
+}
+const CLS = { 0: ['未分類', '#9aa39f'], 1: ['未分類', '#9aa39f'], 2: ['地面', '#b8864b'], 3: ['低い植生', '#a4d16a'], 4: ['中くらいの植生', '#5fb86a'],
+  5: ['高い植生', '#2f8a3e'], 6: ['建物', '#e57373'], 7: ['ノイズ', '#d040d0'], 9: ['水', '#4fc3f7'], 17: ['橋', '#c59bd8'], 18: ['ノイズ', '#d040d0'] };
+const clsColor = c => hex((CLS[c] || [null, '#c8b48a'])[1]);
+function pct(arr, n, stride, lo, hi){
+  const s = []; const st = Math.max(1, Math.floor(n / 150000));
+  for (let i = 0; i < n; i += st) s.push(arr[i * stride + (stride === 3 ? 2 : 0)]);
+  s.sort((a, b) => a - b);
+  return [s[Math.floor(lo * (s.length - 1))], s[Math.floor(hi * (s.length - 1))]];
+}
+
+/* ---- 3D ---- */
+const view = $('#view');
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.localClippingEnabled = true;
+view.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10000);
+camera.up.set(0, 0, 1);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.screenSpacePanning = true;
+let pending = false;
+const req = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; renderer.render(scene, camera); }); };
+controls.addEventListener('change', req);
+new ResizeObserver(() => {
+  const w = view.clientWidth, h = view.clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); req();
+}).observe(view);
+
+let cloud = null, colAttr = null, band = null, tops3d = null;
+const zPlaneLo = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), zPlaneHi = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+let secPlanes = [];
+
+function applyTheme(){
+  scene.background = new THREE.Color(css('--view') || '#0a0e0c');
+  if (band) { band.children.forEach(m => m.material.color.set(css('--view-accent'))); }
+  if (tops3d) tops3d.children.forEach(m => m.material.color.set(css('--view-accent')));
+  drawMap(); drawProfile(); drawHist(); req();
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+function buildCloud(){
+  const P = ST.P;
+  if (cloud) { scene.remove(cloud); cloud.geometry.dispose(); cloud.material.dispose(); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P.pos.slice(), 3));   // 表示用コピー（地表面のみ表示で書き換えるため）
+  P.col = new Uint8Array(P.n * 3);
+  colAttr = new THREE.BufferAttribute(P.col, 3, true);
+  g.setAttribute('color', colAttr);
+  g.computeBoundingSphere();
+  const m = new THREE.PointsMaterial({ size: ST.ptSize, sizeAttenuation: false, vertexColors: true });
+  cloud = new THREE.Points(g, m);
+  scene.add(cloud);
+  updateClip();
+}
+function recolor(){
+  const P = ST.P; if (!P) return;
+  const col = P.col, n = P.n, m = ST.mode;
+  let legend = '';
+  if (m === 'rgb' && P.rgb) { col.set(P.rgb); legend = '<b>RGB</b>（L2の内蔵カメラの色）'; }
+  else if (m === 'int') {
+    const [a, b] = pct(P.inten, n, 1, 0.02, 0.98), k = 255 / Math.max(1, b - a);
+    for (let i = 0; i < n; i++) { const v = Math.max(0, Math.min(255, (P.inten[i] - a) * k)) | 0; col[i*3] = v; col[i*3+1] = v; col[i*3+2] = Math.min(255, v + 12); }
+    legend = rampLegend('反射強度', 'linear-gradient(90deg,#000,#fff)', '弱い', '強い');
+  } else if (m === 'cls') {
+    const used = [];
+    for (let i = 0; i < n; i++) { const c = clsColor(P.cls[i]); col[i*3] = c[0]; col[i*3+1] = c[1]; col[i*3+2] = c[2]; }
+    for (let c = 0; c < 256; c++) if (P.classCount[c]) used.push(c);
+    const seen = new Set();
+    legend = '<b>分類</b><div class="chips">' + used.map(c => { const nm = (CLS[c] || ['分類' + c])[0]; if (seen.has(nm)) return ''; seen.add(nm);
+      return `<span><i style="background:${(CLS[c] || [0, '#c8b48a'])[1]}"></i>${nm}</span>`; }).join('') + '</div>';
+  } else if (m === 'chg' && ST.cmp) {
+    const dimC = [72, 80, 76], pos = P.pos;
+    for (let i = 0; i < n; i++) {
+      const h = P.hag ? P.hag[i] : 1, isGround = P.cls[i] === 2 || h < 0.5;
+      let c = dimC;
+      const v = cmpAt(pos[i*3], pos[i*3+1]);
+      if (!isNaN(v)) {
+        if ((ST.layer === 'chm') !== isGround) c = Math.abs(v) < ST.cThr ? [150, 158, 154] : divColor(v);
+        else if (ST.layer === 'chm' && v < -ST.cThr) c = divColor(v);   // 伐採・倒木で露出した地面も赤く
+      }
+      col[i*3] = c[0]; col[i*3+1] = c[1]; col[i*3+2] = c[2];
+    }
+    legend = divLegend();
+  } else if (m === 'hag' && P.hag) {
+    const [, b] = pct(P.hag, n, 1, 0, 0.99), k = 255 / Math.max(1, b);
+    for (let i = 0; i < n; i++) { const t = Math.max(0, Math.min(255, P.hag[i] * k)) | 0; col[i*3] = LUT_H[t*3]; col[i*3+1] = LUT_H[t*3+1]; col[i*3+2] = LUT_H[t*3+2]; }
+    legend = rampLegend('地上高', grad(HAGR), '0 m', fmt(b, 1) + ' m');
+  } else {
+    const [a, b] = pct(P.pos, n, 3, 0.01, 0.99), k = 255 / Math.max(0.01, b - a);
+    for (let i = 0; i < n; i++) { const t = Math.max(0, Math.min(255, (P.pos[i*3+2] - a) * k)) | 0; col[i*3] = LUT_E[t*3]; col[i*3+1] = LUT_E[t*3+1]; col[i*3+2] = LUT_E[t*3+2]; }
+    legend = rampLegend('標高', grad(ELEV), fmt(a + P.origin.z, 1) + ' m', fmt(b + P.origin.z, 1) + ' m');
+  }
+  $('#legend').innerHTML = legend;
+  colAttr.needsUpdate = true; req(); drawProfile();
+}
+function divLegend(){
+  const t = DIV_TXT[ST.layer];
+  return `<b>${ST.layer === 'chm' ? '樹高の変化' : '地盤の変化'}</b>（今回 − 前回）<div class="bar" style="background:${grad(DIV[ST.layer])}"></div>`
+    + `<div class="ends"><span>−${fmt(ST.cRange, 1)} m</span><span>0</span><span>+${fmt(ST.cRange, 1)} m</span></div>`
+    + `<div class="ends" style="font-family:var(--f-ui)"><span>${t[0]}</span><span>${t[1]}</span></div>`;
+}
+const grad = st => 'linear-gradient(90deg,' + st.map(([t, h]) => `${h} ${t * 100}%`).join(',') + ')';
+const rampLegend = (t, g, a, b) => `<b>${t}</b><div class="bar" style="background:${g}"></div><div class="ends"><span>${a}</span><span>${b}</span></div>`;
+
+function updateClip(){
+  if (!cloud) return;
+  const b = ST.P.bounds, zr = b.maxZ - b.minZ;
+  const lo = b.minZ + zr * (+$('#zLo').value / 1000) - 0.001, hi = b.minZ + zr * (+$('#zHi').value / 1000) + 0.001;
+  zPlaneLo.constant = -lo; zPlaneHi.constant = hi;
+  $('#zLoV').textContent = '下 ' + fmt(lo, 1) + ' m'; $('#zHiV').textContent = '上 ' + fmt(hi, 1) + ' m';
+  const planes = [zPlaneLo, zPlaneHi].concat(ST.secOnly && ST.sec ? secPlanes : []);
+  if (cloud.material.clippingPlanes?.length !== planes.length) { cloud.material.clippingPlanes = planes; cloud.material.needsUpdate = true; }
+  else cloud.material.clippingPlanes = planes;
+  req();
+}
+
+function setCam(kind){
+  if (!ST.P) return;
+  const b = ST.P.bounds, cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2, cz = (b.minZ + b.maxZ) / 2;
+  const ext = Math.max(b.maxX - b.minX, b.maxY - b.minY, 1);
+  camera.near = ext / 2000; camera.far = ext * 30; camera.updateProjectionMatrix();
+  controls.target.set(cx, cy, cz);
+  if (kind === 'top') camera.position.set(cx, cy - ext * 0.001, cz + ext * 1.25);
+  else if (kind === 'side') camera.position.set(cx, cy - ext * 1.15, cz + ext * 0.04);
+  else camera.position.set(cx - ext * 0.35, cy - ext * 0.8, cz + ext * 0.62);
+  controls.update(); req();
+}
+document.querySelectorAll('[data-cam]').forEach(b => b.addEventListener('click', () => setCam(b.dataset.cam)));
+
+/* ---- 平面図 ---- */
+const map = $('#map'); let mapImg = null, mapT = null, drag = null;
+function buildMap(){
+  const P = ST.P, b = P.bounds, ex = b.maxX - b.minX, ey = b.maxY - b.minY;
+  const res = Math.max(ex, ey) / 520, nx = Math.ceil(ex / res) + 1, ny = Math.ceil(ey / res) + 1;
+  const z = new Float32Array(nx * ny).fill(-Infinity), pos = P.pos;
+  for (let i = 0; i < P.n; i++) {
+    const c = P.cls[i]; if (c === 7 || c === 18) continue;
+    const k = Math.floor((b.maxY - pos[i*3+1]) / res) * nx + Math.floor((pos[i*3] - b.minX) / res);
+    if (pos[i*3+2] > z[k]) z[k] = pos[i*3+2];
+  }
+  const cv = document.createElement('canvas'); cv.width = nx; cv.height = ny;
+  const ctx = cv.getContext('2d'), im = ctx.createImageData(nx, ny);
+  const zr = Math.max(0.01, b.maxZ - b.minZ);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i, v = z[k]; if (v === -Infinity) continue;
+    const zl = i > 0 && z[k - 1] > -Infinity ? z[k - 1] : v, zu = j > 0 && z[k - nx] > -Infinity ? z[k - nx] : v;
+    const shade = Math.max(0.45, Math.min(1.25, 0.88 + ((v - zl) - (v - zu)) / res * 0.35));
+    const t = Math.max(0, Math.min(255, (v - b.minZ) / zr * 255)) | 0;
+    im.data[k*4] = Math.min(255, LUT_E[t*3] * shade); im.data[k*4+1] = Math.min(255, LUT_E[t*3+1] * shade);
+    im.data[k*4+2] = Math.min(255, LUT_E[t*3+2] * shade); im.data[k*4+3] = 255;
+  }
+  ctx.putImageData(im, 0, 0); mapImg = cv;
+  $('#mapScale').textContent = fmt(ex, 0) + ' × ' + fmt(ey, 0) + ' m';
+  drawMap();
+}
+function drawMap(){
+  if (!mapImg || !ST.P) return;
+  const b = ST.P.bounds, ex = b.maxX - b.minX, ey = b.maxY - b.minY;
+  const cw = map.clientWidth || 300, ch = Math.max(150, Math.min(270, cw * ey / ex)), dpr = window.devicePixelRatio || 1;
+  map.style.height = ch + 'px'; map.width = cw * dpr; map.height = ch * dpr;
+  const ctx = map.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const s = Math.min(cw / ex, ch / ey), ox = (cw - ex * s) / 2, oy = (ch - ey * s) / 2;
+  mapT = { s, ox, oy, b };
+  ctx.fillStyle = css('--view'); ctx.fillRect(0, 0, cw, ch);
+  ctx.imageSmoothingEnabled = true;
+  const W = (x, y) => [ox + (x - b.minX) * s, oy + (b.maxY - y) * s];
+  const over = ST.cmp && ST.cOnMap && cmpImg;
+  ctx.globalAlpha = over ? 0.4 : 1; ctx.drawImage(mapImg, ox, oy, ex * s, ey * s); ctx.globalAlpha = 1;
+  if (over) {
+    const c = ST.cmp, [x0, y0] = W(c.b.minX, c.b.maxY);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(cmpImg, x0, y0, c.nx * c.res * s, c.ny * c.res * s); ctx.imageSmoothingEnabled = true;
+    if (ST.layer === 'chm') { ctx.strokeStyle = css('--danger'); ctx.lineWidth = 1.5;
+      for (const t of c.lost) { const [px, py] = W(t.x, t.y); ctx.beginPath(); ctx.arc(px, py, 3.5, 0, 7); ctx.stroke(); } }
+  }
+  if (ST.trees && ST.showTops && !over) {
+    ctx.fillStyle = css('--view-accent'); ctx.globalAlpha = 0.9;
+    for (const t of ST.trees.tops) { const [px, py] = W(t.x, t.y); ctx.fillRect(px - 1.2, py - 1.2, 2.4, 2.4); }
+    ctx.globalAlpha = 1;
+  }
+  const sec = drag || ST.sec;
+  if (sec) {
+    const [ax, ay] = W(sec.ax, sec.ay), [bx, by] = W(sec.bx, sec.by);
+    const L = Math.hypot(bx - ax, by - ay) || 1, nxp = -(by - ay) / L, nyp = (bx - ax) / L, hw = Math.max(1, ST.secW / 2 * s);
+    ctx.fillStyle = css('--view-accent'); ctx.globalAlpha = 0.22; ctx.beginPath();
+    ctx.moveTo(ax + nxp * hw, ay + nyp * hw); ctx.lineTo(bx + nxp * hw, by + nyp * hw); ctx.lineTo(bx - nxp * hw, by - nyp * hw); ctx.lineTo(ax - nxp * hw, ay - nyp * hw); ctx.fill();
+    ctx.globalAlpha = 1; ctx.strokeStyle = css('--view-accent'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.font = '700 12px ' + css('--f-num'); ctx.lineWidth = 3; ctx.strokeStyle = css('--view'); ctx.fillStyle = css('--view-accent');
+    ctx.strokeText('A', ax + 5, ay - 5); ctx.fillText('A', ax + 5, ay - 5); ctx.strokeText('A′', bx + 5, by - 5); ctx.fillText('A′', bx + 5, by - 5);
+  }
+}
+function mapToWorld(e){
+  const r = map.getBoundingClientRect(), { s, ox, oy, b } = mapT;
+  const x = b.minX + (e.clientX - r.left - ox) / s, y = b.maxY - (e.clientY - r.top - oy) / s;
+  return [Math.max(b.minX, Math.min(b.maxX, x)), Math.max(b.minY, Math.min(b.maxY, y))];
+}
+map.addEventListener('pointerdown', e => {
+  if (!mapT) return; map.setPointerCapture(e.pointerId);
+  const [x, y] = mapToWorld(e); drag = { ax: x, ay: y, bx: x, by: y, sx: e.clientX, sy: e.clientY };
+});
+map.addEventListener('pointermove', e => { if (!drag) return; const [x, y] = mapToWorld(e); drag.bx = x; drag.by = y; drawMap(); });
+map.addEventListener('pointerup', e => {
+  if (!drag) return; const d = drag; drag = null;
+  if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8 || Math.hypot(d.bx - d.ax, d.by - d.ay) < 0.5) { drawMap(); return; }
+  document.querySelectorAll('#secDirSeg button').forEach(x => x.setAttribute('aria-pressed', 'false'));
+  setBaseSection({ ax: d.ax, ay: d.ay, bx: d.bx, by: d.by });
+});
+map.addEventListener('pointercancel', () => { drag = null; drawMap(); });
+window.addEventListener('resize', () => { drawMap(); drawProfile(); drawHist(); });
+
+/* ---- 断面 ---- */
+function setSection(sec, keep){
+  if (!keep) { ST.secOff = 0; ST.measure = null; $('#mRead').hidden = true; }
+  ST.sec = sec;
+  ST.prof = PC.profile(ST.P, { ...sec, w: ST.secW });
+  ST.prof2 = ST.P2 && ST.cOnProf ? PC.profile(ST.P2, { ...sec, w: ST.secW }) : null;
+  $('#pLegend').hidden = !ST.prof2;
+  $('#profile').hidden = false; $('#copyGround').disabled = false;
+  const off = ST.secOff || 0;
+  $('#pMeta').textContent = `延長 ${fmt(ST.prof.L, 1)} m ・ 幅 ${fmt(ST.secW, 1)} m ・ 位置 ${off > 0 ? '+' : off < 0 ? '−' : '±'}${fmt(Math.abs(off), 1)} m ・ 縦倍率 ${ST.exag}倍 ・ ${ST.prof.total.toLocaleString()} 点`;
+  $('#secNote').textContent = `断面線 A–A′ を表示中（延長 ${fmt(ST.prof.L, 1)} m）。平面図で引き直すと更新されます。`;
+  build3dBand(); drawMap();
+  if (keep && PV) drawProfile(); else requestAnimationFrame(() => { fitProfile(); drawProfile(); });
+}
+function build3dBand(){
+  if (band) { scene.remove(band); band.children.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); band = null; }
+  const s = ST.sec; if (!s) return;
+  const b = ST.P.bounds, L = Math.hypot(s.bx - s.ax, s.by - s.ay), ang = Math.atan2(s.by - s.ay, s.bx - s.ax);
+  const hz = b.maxZ - b.minZ + 2, cx = (s.ax + s.bx) / 2, cy = (s.ay + s.by) / 2, cz = (b.minZ + b.maxZ) / 2;
+  band = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(L, ST.secW, hz), new THREE.MeshBasicMaterial({ color: css('--view-accent'), transparent: true, opacity: ST.secOnly ? 0.05 : 0.14, depthWrite: false }));
+  box.position.set(cx, cy, cz); box.rotation.z = ang; band.add(box);
+  const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(s.ax, s.ay, b.maxZ + 1), new THREE.Vector3(s.bx, s.by, b.maxZ + 1)]);
+  band.add(new THREE.Line(lg, new THREE.LineBasicMaterial({ color: css('--view-accent') })));
+  scene.add(band);
+  const ux = (s.bx - s.ax) / L, uy = (s.by - s.ay) / L, hw = ST.secW / 2;
+  const mk = (nx, ny, px, py) => new THREE.Plane(new THREE.Vector3(nx, ny, 0), -(nx * px + ny * py));
+  secPlanes = [mk(-uy, ux, s.ax + uy * hw, s.ay - ux * hw), mk(uy, -ux, s.ax - uy * hw, s.ay + ux * hw), mk(ux, uy, s.ax, s.ay), mk(-ux, -uy, s.bx, s.by)];
+  updateClip();
+}
+const pcv = $('#pcv'); let PV = null; // { k, ox, oy }
+function fitProfile(){
+  const pr = ST.prof; if (!pr) return;
+  const w = pcv.clientWidth, h = pcv.clientHeight, padL = 58, padR = 18, padT = 16, padB = 30;
+  const zr = Math.max(1, pr.zmax - pr.zmin);
+  const k = Math.min((w - padL - padR) / pr.L, (h - padT - padB) / (zr * ST.exag));
+  PV = { k, ox: padL + ((w - padL - padR) - pr.L * k) / 2, oy: padT + ((h - padT - padB) + zr * k * ST.exag) / 2 + pr.zmin * k * ST.exag };
+}
+const toPx = (s, z) => [PV.ox + s * PV.k, PV.oy - z * PV.k * ST.exag];
+const fromPx = (x, y) => [(x - PV.ox) / PV.k, (PV.oy - y) / (PV.k * ST.exag)];
+function niceStep(raw){ const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+function drawProfile(){
+  const pr = ST.prof; if (!pr || $('#profile').hidden) return;
+  const w = pcv.clientWidth, h = pcv.clientHeight, dpr = window.devicePixelRatio || 1; if (!w || !h) return;
+  pcv.width = w * dpr; pcv.height = h * dpr; if (!PV) fitProfile();
+  const ctx = pcv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = css('--view'); ctx.fillRect(0, 0, w, h);
+  // grid
+  const [s0, z1] = fromPx(0, 0), [s1, z0] = fromPx(w, h);
+  const ss = niceStep(80 / PV.k), zs = niceStep(50 / (PV.k * ST.exag));
+  ctx.strokeStyle = css('--view-grid'); ctx.lineWidth = 1; ctx.fillStyle = css('--view-ink'); ctx.font = '11px ' + css('--f-num');
+  ctx.beginPath();
+  for (let s = Math.ceil(s0 / ss) * ss; s <= s1; s += ss) { const [x] = toPx(s, 0); ctx.moveTo(Math.round(x) + .5, 0); ctx.lineTo(Math.round(x) + .5, h - 22); }
+  for (let z = Math.ceil(z0 / zs) * zs; z <= z1; z += zs) { const [, y] = toPx(0, z); ctx.moveTo(52, Math.round(y) + .5); ctx.lineTo(w, Math.round(y) + .5); }
+  ctx.stroke();
+  // 前回の点（比較用）
+  const p2 = ST.prof2;
+  if (p2) {
+    ctx.fillStyle = css('--view-cmp'); ctx.globalAlpha = 0.75;
+    const q = Math.max(1.4, Math.min(3, PV.k * 0.12));
+    for (let k = 0; k < p2.n; k++) {
+      const x = PV.ox + p2.S[k] * PV.k, y = PV.oy - p2.Z[k] * PV.k * ST.exag;
+      if (x < -2 || x > w + 2 || y < -2 || y > h + 2) continue; ctx.fillRect(x - q / 2, y - q / 2, q, q);
+    }
+    ctx.globalAlpha = 1;
+  }
+  // points
+  const col = ST.P.col, ps = Math.max(1.4, Math.min(3, PV.k * 0.12));
+  for (let k = 0; k < pr.n; k++) {
+    const x = PV.ox + pr.S[k] * PV.k, y = PV.oy - pr.Z[k] * PV.k * ST.exag;
+    if (x < -2 || x > w + 2 || y < -2 || y > h + 2) continue;
+    const i = pr.I[k]; ctx.fillStyle = `rgb(${col[i*3]},${col[i*3+1]},${col[i*3+2]})`; ctx.fillRect(x - ps / 2, y - ps / 2, ps, ps);
+  }
+  // ground line
+  ctx.strokeStyle = css('--view-fg'); ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]); ctx.beginPath(); let st = false;
+  for (let bi = 0; bi < pr.ground.length; bi++) {
+    const z = pr.ground[bi]; if (z === Infinity) { st = false; continue; }
+    const [x, y] = toPx((bi + 0.5) * pr.bw, z); st ? ctx.lineTo(x, y) : ctx.moveTo(x, y); st = true;
+  }
+  ctx.stroke();
+  if (p2) {
+    ctx.strokeStyle = css('--view-cmp'); ctx.beginPath(); st = false;
+    for (let bi = 0; bi < p2.ground.length; bi++) {
+      const z = p2.ground[bi]; if (z === Infinity) { st = false; continue; }
+      const [x, y] = toPx((bi + 0.5) * p2.bw, z); st ? ctx.lineTo(x, y) : ctx.moveTo(x, y); st = true;
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // axis labels
+  ctx.fillStyle = css('--view'); ctx.fillRect(0, h - 22, w, 22); ctx.fillRect(0, 0, 52, h);
+  ctx.fillStyle = css('--view-ink'); ctx.textAlign = 'center';
+  for (let s = Math.ceil(s0 / ss) * ss; s <= s1; s += ss) { const [x] = toPx(s, 0); if (x > 60) ctx.fillText(+s.toFixed(2) + ' m', x, h - 7); }
+  ctx.textAlign = 'right';
+  for (let z = Math.ceil(z0 / zs) * zs; z <= z1; z += zs) { const [, y] = toPx(0, z); if (y < h - 26) ctx.fillText(+(z + ST.P.origin.z).toFixed(2) + '', 48, y + 4); }
+  ctx.textAlign = 'left';
+  // A / A'
+  ctx.fillStyle = css('--view-accent'); ctx.font = '700 12px ' + css('--f-num');
+  const [ax] = toPx(0, 0), [bx] = toPx(pr.L, 0);
+  if (ax > 52) ctx.fillText('A', ax + 3, 14); if (bx < w) ctx.fillText('A′', bx - 18, 14);
+  // measurement
+  const M = ST.measure;
+  if (M && M.a) {
+    const [x1, y1] = toPx(...M.a); const pt = M.b ? toPx(...M.b) : null;
+    ctx.strokeStyle = css('--view-accent'); ctx.fillStyle = css('--view-accent'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x1, y1, 4, 0, 7); ctx.fill();
+    if (pt) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(pt[0], pt[1]); ctx.stroke(); ctx.beginPath(); ctx.arc(pt[0], pt[1], 4, 0, 7); ctx.fill();
+      ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(pt[0], y1); ctx.lineTo(pt[0], pt[1]); ctx.stroke(); ctx.setLineDash([]); }
+  }
+}
+// pan / zoom / measure
+let pdrag = null;
+function zoomAt(mx, my, f){ if (!PV) return; PV.ox = mx - (mx - PV.ox) * f; PV.oy = my - (my - PV.oy) * f; PV.k *= f; drawProfile(); }
+pcv.addEventListener('wheel', e => {
+  if (!PV) return; e.preventDefault();
+  const r = pcv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const u = e.deltaMode === 1 ? 18 : e.deltaMode === 2 ? pcv.clientWidth : 1;
+  if (e.ctrlKey || e.metaKey) { zoomAt(mx, my, Math.exp(-e.deltaY * u * 0.002)); return; }
+  if (e.shiftKey) { PV.ox -= (e.deltaY || e.deltaX) * u; drawProfile(); return; }   // Shift：断面に沿って左右に移動
+  if (e.deltaX) { PV.ox -= e.deltaX * u; drawProfile(); }                         // 横スクロール（トラックパッド）
+  wheelSlide(e, u);                                                                // 通常：断面を前後に送る
+}, { passive: false });
+$('#pZin').addEventListener('click', () => zoomAt(pcv.clientWidth / 2, pcv.clientHeight / 2, 1.5));
+$('#pZout').addEventListener('click', () => zoomAt(pcv.clientWidth / 2, pcv.clientHeight / 2, 1 / 1.5));
+const ptrs = new Map(); let pinch = null;
+const mid = () => { const a = [...ptrs.values()]; return [(a[0].x + a[1].x) / 2, (a[0].y + a[1].y) / 2, Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y)]; };
+pcv.addEventListener('pointerdown', e => {
+  if (!PV) return; pcv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) { pinch = mid(); pdrag = null; return; }
+  pdrag = { x: e.clientX, y: e.clientY, ox: PV.ox, oy: PV.oy, moved: false };
+});
+pcv.addEventListener('pointermove', e => {
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && ptrs.size === 2) {
+    const [x, y, d] = mid(), r = pcv.getBoundingClientRect();
+    PV.ox += x - pinch[0]; PV.oy += y - pinch[1];
+    zoomAt(x - r.left, y - r.top, d / Math.max(1, pinch[2])); pinch = [x, y, d]; return;
+  }
+  if (!pdrag) return; const dx = e.clientX - pdrag.x, dy = e.clientY - pdrag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) pdrag.moved = true;
+  if (pdrag.moved) { PV.ox = pdrag.ox + dx; PV.oy = pdrag.oy + dy; drawProfile(); }
+});
+const endPtr = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; };
+pcv.addEventListener('pointercancel', e => { endPtr(e); pdrag = null; });
+pcv.addEventListener('pointerup', e => {
+  const wasPinch = !!pinch || ptrs.size > 1; endPtr(e);
+  const d = pdrag; pdrag = null; if (wasPinch || !d || d.moved || !ST.measureOn) return;
+  const r = pcv.getBoundingClientRect(), p = fromPx(e.clientX - r.left, e.clientY - r.top);
+  if (!ST.measure || ST.measure.b) ST.measure = { a: p, b: null }; else ST.measure.b = p;
+  showMeasure(); drawProfile();
+});
+function showMeasure(){
+  const M = ST.measure, el = $('#mRead');
+  if (!M || !M.b) { el.hidden = false; el.innerHTML = '2点目をクリック'; return; }
+  const dl = Math.abs(M.b[0] - M.a[0]), dh = M.b[1] - M.a[1], sl = Math.hypot(dl, dh);
+  const grade = dl > 0 ? Math.abs(dh) / dl * 100 : Infinity, deg = Math.atan2(Math.abs(dh), dl) * 180 / Math.PI;
+  el.hidden = false;
+  el.innerHTML = `水平距離 ${fmt(dl)} m<br>高低差 ${dh >= 0 ? '+' : ''}${fmt(dh)} m<br>斜距離 ${fmt(sl)} m<br>勾配 ${isFinite(grade) ? fmt(grade, 1) + ' %' : '—'}（${fmt(deg, 1)}°）`;
+}
+$('#pMeasure').addEventListener('click', () => {
+  ST.measureOn = !ST.measureOn; $('#pMeasure').classList.toggle('on', ST.measureOn); pcv.classList.toggle('measuring', ST.measureOn);
+  if (!ST.measureOn) { ST.measure = null; $('#mRead').hidden = true; } else showMeasure(); drawProfile();
+});
+$('#pFit').addEventListener('click', () => { fitProfile(); drawProfile(); });
+$('#pClose').addEventListener('click', () => {
+  $('#profile').hidden = true; ST.sec = null; ST.prof = null; ST.prof2 = null; $('#copyGround').disabled = true; build3dBand(); drawMap(); updateClip();
+  $('#secNote').textContent = '平面図の上でドラッグして、断面を見たい線を引いてください。';
+});
+new ResizeObserver(() => { if (ST.prof) { fitProfile(); drawProfile(); } }).observe(pcv);
+const secW = $('#secW');
+secW.addEventListener('input', () => { ST.secW = +secW.value; $('#secWV').textContent = fmt(ST.secW, 1) + ' m'; drawMap(); });
+secW.addEventListener('change', () => { if (ST.sec) setSection(ST.sec, true); });
+/* 基準の断面線＋スライダーでの平行移動 */
+function secNormal(s){ const L = Math.hypot(s.bx - s.ax, s.by - s.ay); return [-(s.by - s.ay) / L, (s.bx - s.ax) / L]; }
+function setBaseSection(sec){
+  const b = ST.P.bounds, [nx, ny] = secNormal(sec);
+  const pr = [[b.minX, b.minY], [b.maxX, b.minY], [b.minX, b.maxY], [b.maxX, b.maxY]].map(([x, y]) => (x - sec.ax) * nx + (y - sec.ay) * ny);
+  ST.secBase = sec;
+  const sl = $('#secPos'); sl.min = Math.floor(Math.min(...pr)); sl.max = Math.ceil(Math.max(...pr)); sl.value = 0;
+  setSection(sec); syncSecPos();
+}
+function secAxis(dir){
+  const b = ST.P.bounds, cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+  document.querySelectorAll('#secDirSeg button').forEach(x => x.setAttribute('aria-pressed', x.dataset.d === dir));
+  setBaseSection(dir === 'ns' ? { ax: cx, ay: b.maxY - 2, bx: cx, by: b.minY + 2 } : { ax: b.minX + 2, ay: cy, bx: b.maxX - 2, by: cy });
+}
+function syncSecPos(){
+  const o = ST.secOff || 0; $('#secPos').value = o;
+  $('#secPosV').textContent = (o > 0 ? '+' : o < 0 ? '−' : '±') + fmt(Math.abs(o), 1) + ' m';
+}
+function moveSecTo(off){
+  const s = ST.secBase; if (!s) return;
+  const [nx, ny] = secNormal(s);
+  ST.secOff = off;
+  setSection({ ax: s.ax + nx * off, ay: s.ay + ny * off, bx: s.bx + nx * off, by: s.by + ny * off }, true); syncSecPos();
+}
+let secPosRaf = 0;
+$('#secPos').addEventListener('input', e => {
+  const v = +e.target.value; $('#secPosV').textContent = (v > 0 ? '+' : v < 0 ? '−' : '±') + fmt(Math.abs(v), 1) + ' m';
+  if (secPosRaf) cancelAnimationFrame(secPosRaf);
+  secPosRaf = requestAnimationFrame(() => { secPosRaf = 0; moveSecTo(v); });
+});
+segment('#secDirSeg', 'd', v => secAxis(v));
+$('#secEW').addEventListener('click', () => secAxis('ew'));
+$('#secNS').addEventListener('click', () => secAxis('ns'));
+
+/* 断面を直交方向に送る（スクロール1目盛り＝断面の幅ぶん） */
+function shiftSec(dir){
+  const s = ST.sec; if (!s) { toast('先に平面図で断面線を引いてください'); return; }
+  const L = Math.hypot(s.bx - s.ax, s.by - s.ay), nx = -(s.by - s.ay) / L, ny = (s.bx - s.ax) / L, d = ST.secW * dir;
+  const ns = { ax: s.ax + nx * d, ay: s.ay + ny * d, bx: s.bx + nx * d, by: s.by + ny * d }, b = ST.P.bounds;
+  const out = (x, y) => x < b.minX || x > b.maxX || y < b.minY || y > b.maxY;
+  if (out(ns.ax, ns.ay) && out(ns.bx, ns.by) && out((ns.ax + ns.bx) / 2, (ns.ay + ns.by) / 2)) { toast('データの端まで来ました'); return; }
+  ST.secOff = (ST.secOff || 0) + d;
+  setSection(ns, true); syncSecPos();
+}
+let slideQ = 0, slideRaf = 0, wheelAcc = 0;
+function slideSec(n){
+  slideQ += n; if (slideRaf) return;
+  slideRaf = requestAnimationFrame(() => { slideRaf = 0; const k = slideQ; slideQ = 0; if (k) shiftSec(k); });
+}
+function wheelSlide(e, u){
+  const d = e.deltaY * u; if (!d) return;
+  if (Math.abs(d) >= 50) { wheelAcc = 0; slideSec(Math.sign(d)); return; }   // マウス：1目盛り＝1断面
+  wheelAcc += d; if (Math.abs(wheelAcc) >= 80) { slideSec(Math.sign(wheelAcc)); wheelAcc = 0; }   // トラックパッド
+}
+map.addEventListener('wheel', e => { if (!ST.sec) return; e.preventDefault(); wheelSlide(e, e.deltaMode === 1 ? 18 : 1); }, { passive: false });
+$('#secPrev').addEventListener('click', () => shiftSec(-1));
+$('#pPrev').addEventListener('click', () => shiftSec(-1));
+$('#pNext').addEventListener('click', () => shiftSec(1));
+$('#secNext').addEventListener('click', () => shiftSec(1));
+segment('#exagSeg', 'e', v => { ST.exag = +v; fitProfile(); drawProfile(); if (ST.sec) setSection(ST.sec, true); });
+$('#secOnly3d').addEventListener('change', e => { ST.secOnly = e.target.checked; build3dBand(); updateClip(); });
+$('#copyGround').addEventListener('click', () => {
+  const pr = ST.prof; if (!pr) return;
+  const rows = ['距離(m)\t標高(m)'];
+  for (let s = 0; s <= pr.L + 1e-6; s += 1) {
+    const bi = Math.min(pr.ground.length - 1, Math.floor(s / pr.bw));
+    let z = pr.ground[bi];
+    if (z === Infinity) { for (let r = 1; r < 6 && z === Infinity; r++) { z = Math.min(pr.ground[bi - r] ?? Infinity, pr.ground[bi + r] ?? Infinity); } }
+    rows.push(s.toFixed(1) + '\t' + (z === Infinity ? '' : (z + ST.P.origin.z).toFixed(3)));
+  }
+  copyText(rows.join('\n'), '#copyFallSec', '地盤線をコピーしました（' + (rows.length - 1) + '行）');
+});
+
+/* ---- 樹木 ---- */
+function runTrees(){
+  const P = ST.P; if (!P) return;
+  const btn = $('#runTrees'); btn.disabled = true; btn.textContent = '計算中…';
+  setTimeout(() => {
+    try {
+      if (!P.hag || P.groundMethod !== ST.ground) { PC.computeGround(P, ST.ground); P.groundMethod = ST.ground; updateGroundNote(); }
+      ST.trees = PC.analyzeTrees(P, P.dtm, { minH: +$('#minH').value, rMin: +$('#rMin').value, auto: $('#rAuto').checked, res: ST.res });
+      showTrees();
+      if (ST.mode === 'hag') recolor();
+      $('[data-c="hag"]').disabled = false;
+    } catch (err) { console.error(err); toast('解析に失敗しました：' + err.message); }
+    btn.disabled = false; btn.textContent = '木の本数を数える';
+  }, 30);
+}
+function showTrees(){
+  const T = ST.trees, tops = T.tops, n = tops.length;
+  $('#treeResult').hidden = false; $('#tCount').textContent = n.toLocaleString();
+  const hs = tops.map(t => t.h), mean = n ? hs.reduce((a, b) => a + b, 0) / n : 0, cr = n ? tops.reduce((a, t) => a + t.crown, 0) / n : 0;
+  $('#tKv').innerHTML = [['平均樹高', fmt(mean, 1) + ' m'], ['最大樹高', n ? fmt(hs[0], 1) + ' m' : '—'], ['平均樹冠径', fmt(cr, 1) + ' m'],
+    ['解析面積', fmt(T.areaHa, 2) + ' ha'], ['立木密度', T.areaHa ? Math.round(n / T.areaHa).toLocaleString() + ' 本/ha' : '—']]
+    .map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+  const m = ST.P.meta; const tt = $('#tTruth');
+  if (m.sample) { const truth = m.trees.filter(h => h >= +$('#minH').value).length; tt.hidden = false; tt.textContent = `このサンプルに実際に植えた木は ${truth} 本です（検出精度の目安）。`; }
+  else tt.hidden = true;
+  const o = ST.P.origin;
+  $('#tBody').innerHTML = tops.slice(0, 300).map((t, i) => `<tr><td>${i + 1}</td><td>${(t.x + o.x).toFixed(2)}</td><td>${(t.y + o.y).toFixed(2)}</td><td>${t.h.toFixed(1)}</td><td>${t.crown.toFixed(1)}</td></tr>`).join('')
+    + (n > 300 ? `<tr><td colspan="5" style="text-align:center;color:var(--muted)">ほか ${n - 300} 本（コピーすると全件入ります）</td></tr>` : '');
+  build3dTops(); drawMap(); drawHist();
+}
+function build3dTops(){
+  if (tops3d) { scene.remove(tops3d); tops3d.children.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); tops3d = null; }
+  if (!ST.trees || !ST.showTops) { req(); return; }
+  const t = ST.trees.tops, seg = new Float32Array(t.length * 6), pts = new Float32Array(t.length * 3);
+  t.forEach((q, i) => { seg.set([q.x, q.y, q.g, q.x, q.y, q.g + q.h], i * 6); pts.set([q.x, q.y, q.g + q.h + 0.3], i * 3); });
+  tops3d = new THREE.Group();
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(seg, 3));
+  tops3d.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: css('--view-accent'), transparent: true, opacity: 0.55 })));
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+  tops3d.add(new THREE.Points(pg, new THREE.PointsMaterial({ color: css('--view-accent'), size: 7, sizeAttenuation: false })));
+  scene.add(tops3d); req();
+}
+function drawHist(){
+  const cv = $('#hist'); if (!ST.trees || $('#treeResult').hidden) return;
+  const w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1; if (!w) return;
+  cv.width = w * dpr; cv.height = h * dpr; const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const tops = ST.trees.tops; if (!tops.length) return;
+  const bw = 2, lo = Math.floor(Math.min(...tops.map(t => t.h)) / bw) * bw, hi = Math.ceil(Math.max(...tops.map(t => t.h)) / bw) * bw || lo + bw;
+  const nb = Math.max(1, (hi - lo) / bw), cnt = new Array(nb).fill(0);
+  tops.forEach(t => cnt[Math.min(nb - 1, Math.floor((t.h - lo) / bw))]++);
+  const mx = Math.max(...cnt), padB = 18, padT = 14, gw = (w) / nb;
+  ctx.font = '10.5px ' + css('--f-num'); ctx.textAlign = 'center';
+  cnt.forEach((c, i) => {
+    const bh = (h - padB - padT) * c / mx, x = i * gw;
+    ctx.fillStyle = css('--accent'); ctx.fillRect(x + 1, h - padB - bh, gw - 2, bh);
+    if (c && gw > 16) { ctx.fillStyle = css('--fg'); ctx.fillText(c, x + gw / 2, h - padB - bh - 3); }
+  });
+  ctx.fillStyle = css('--muted'); const every = Math.ceil(28 / gw);
+  for (let i = 0; i <= nb; i += every) ctx.fillText(lo + i * bw + 'm', Math.min(w - 12, Math.max(12, i * gw)), h - 4);
+}
+$('#runTrees').addEventListener('click', runTrees);
+$('#showTops').addEventListener('change', e => { ST.showTops = e.target.checked; build3dTops(); drawMap(); });
+$('#copyTrees').addEventListener('click', () => {
+  if (!ST.trees) return; const o = ST.P.origin;
+  const rows = ['No.\tX\tY\t地盤標高(m)\t樹頂標高(m)\t樹高(m)\t樹冠径(m)'].concat(ST.trees.tops.map((t, i) =>
+    [i + 1, (t.x + o.x).toFixed(3), (t.y + o.y).toFixed(3), (t.g + o.z).toFixed(2), (t.g + t.h + o.z).toFixed(2), t.h.toFixed(2), t.crown.toFixed(2)].join('\t')));
+  copyText(rows.join('\n'), '#copyFallTree', ST.trees.tops.length + '本分の一覧をコピーしました');
+});
+const bindRange = (id, out, f) => { const el = $(id); const u = () => $(out).textContent = f(+el.value); el.addEventListener('input', u); u(); };
+bindRange('#minH', '#minHV', v => fmt(v, 1) + ' m');
+bindRange('#rMin', '#rMinV', v => fmt(v, 1) + ' m');
+segment('#groundSeg', 'g', v => { ST.ground = v; updateGroundNote(); });
+segment('#resSeg', 'r', v => { ST.res = +v; });
+function updateGroundNote(){
+  const P = ST.P; if (!P) return; const has = P.classCount[2] > P.n * 0.005, el = $('#groundNote');
+  if (ST.ground === 'class' && !has) { el.className = 'note warn'; el.textContent = 'このデータには地面の分類がありません。自動推定で計算します。Terraの「点群の地面分類」をかけて書き出すと精度が上がります。'; }
+  else if (ST.ground === 'class') { el.className = 'note'; el.textContent = `地面に分類された点 ${P.classCount[2].toLocaleString()} 点から地盤面を作ります。`; }
+  else { el.className = 'note'; el.textContent = '各1m格子の最低点から地盤面を推定します。急斜面では誤差が出やすくなります。'; }
+}
+
+/* ---- 比較 ---- */
+let cmpImg = null;
+function buildCmpImg(){
+  const c = ST.cmp; if (!c) { cmpImg = null; return; }
+  const cv = document.createElement('canvas'); cv.width = c.nx; cv.height = c.ny;
+  const ctx = cv.getContext('2d'), im = ctx.createImageData(c.nx, c.ny), g = ST.layer === 'chm' ? c.dChm : c.dDtm;
+  for (let j = 0; j < c.ny; j++) for (let i = 0; i < c.nx; i++) {
+    const v = g[j * c.nx + i]; if (isNaN(v) || Math.abs(v) < ST.cThr) continue;
+    const k = ((c.ny - 1 - j) * c.nx + i) * 4, col = divColor(v);
+    im.data[k] = col[0]; im.data[k+1] = col[1]; im.data[k+2] = col[2]; im.data[k+3] = 235;
+  }
+  ctx.putImageData(im, 0, 0); cmpImg = cv;
+}
+function alignTo(P2, P){
+  const dx = P2.origin.x - P.origin.x, dy = P2.origin.y - P.origin.y, dz = P2.origin.z - P.origin.z, pos = P2.pos;
+  if (dx || dy || dz) for (let i = 0; i < P2.n; i++) { pos[i*3] += dx; pos[i*3+1] += dy; pos[i*3+2] += dz; }
+  P2.origin = { ...P.origin }; return PC.rebound(P2);
+}
+async function openPast(list){
+  const files = [...(list || [])].filter(f => f && f.size).sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
+  if (!files.length || !ST.P) return;
+  const ld = $('#loading'), fill = $('#loadFill'); ld.hidden = false; fill.style.width = '0%';
+  $('#loadMsg').textContent = '前回のデータを読み込み中…';
+  try {
+    const P2 = await PC.readLAS(files, +$('#maxPts').value, p => fill.style.width = (p * 100).toFixed(0) + '%');
+    setPast(alignTo(P2, ST.P));
+  } catch (err) {
+    console.error(err);
+    toast(err.message === 'LAZ' ? 'LAZ形式は読み込めません。LASで書き出してください。' : err.message === 'NOTLAS' ? 'LASファイルではないようです。' : '前回データの読み込みに失敗しました：' + err.message);
+  }
+  ld.hidden = true;
+}
+function setPast(P2){
+  ST.P2 = P2;
+  $('#p2Kv').innerHTML = '';
+  [['ファイル', P2.meta.name], ['点数', P2.n.toLocaleString() + ' 点']].forEach(([a, v]) => {
+    const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = a; dd.textContent = v; dd.style.whiteSpace = 'normal'; dd.style.wordBreak = 'break-all';
+    $('#p2Kv').append(dt, dd);
+  });
+  $('#cmpBody').hidden = false; runCompare();
+}
+function runCompare(){
+  const P = ST.P, P2 = ST.P2; if (!P || !P2) return;
+  const btn = $('#runCmp'); btn.disabled = true; btn.textContent = '計算中…';
+  $('#cmpResult').innerHTML = '<p class="note">2つのデータの差を計算しています…</p>';
+  setTimeout(() => {
+    try {
+      if (!P.hag || P.groundMethod !== ST.ground) { PC.computeGround(P, ST.ground); P.groundMethod = ST.ground; }
+      if (!P2.hag || P2.groundMethod !== ST.ground) { PC.computeGround(P2, ST.ground); P2.groundMethod = ST.ground; }
+      const b = P.bounds, ha = (b.maxX - b.minX) * (b.maxY - b.minY) / 10000;
+      ST.cmp = PC.compare(P, P2, { res: ha < 100 ? 0.5 : 1, thr: ST.cThr, minH: +$('#minH').value,
+        tree: { minH: +$('#minH').value, rMin: +$('#rMin').value, auto: $('#rAuto').checked, res: ST.res } });
+      showCompare();
+      $('[data-c="chg"]').disabled = false;
+      ST.mode = 'chg'; document.querySelectorAll('#colorSeg button').forEach(x => x.setAttribute('aria-pressed', x.dataset.c === 'chg'));
+      buildCmpImg(); recolor(); colorNote(); drawMap();
+      if (ST.sec) setSection(ST.sec, true);
+    } catch (err) {
+      console.error(err);
+      $('#cmpResult').innerHTML = ''; const pp = document.createElement('p'); pp.className = 'note warn';
+      pp.textContent = err.message === 'NOOVERLAP' ? '今回と前回のデータが重なっていません。同じ座標系で書き出したデータか確認してください。' : '比較に失敗しました：' + err.message;
+      $('#cmpResult').append(pp);
+    }
+    btn.disabled = false; btn.textContent = '比較を計算しなおす';
+  }, 30);
+}
+function showCompare(){
+  const c = ST.cmp, S = c.S, m3 = v => Math.round(v).toLocaleString() + ' m³', sign = v => (v >= 0 ? '+' : '−') + fmt(Math.abs(v), 2) + ' m';
+  const row = (a, b, sub) => `<dt${sub ? ' class="sub"' : ''}>${a}</dt><dd>${b}</dd>`;
+  const truth = ST.P.meta.truth && ST.P2.meta.sample
+    ? `<p class="note">サンプルの正解：平均成長 ${fmt(ST.P.meta.truth.meanGrow, 2)} m、伐採 ${ST.P.meta.truth.felled} 本、斜面の崩壊が1か所。</p>` : '';
+  $('#cmpResult').innerHTML = `
+    <div class="label"><span>木の成長</span></div>
+    <div class="count"><b>${sign(S.medGrow)}</b><span>1本あたりの成長（中央値）</span></div>
+    <dl class="kv">
+      ${row('照合できた木', S.pairs.toLocaleString() + ' 本')}
+      ${row('平均の成長', sign(S.meanGrow))}
+      ${row('樹冠全体の平均の伸び', sign(S.meanCanopy))}
+      ${row('伐採・倒木の可能性', '<b>' + c.lost.length + ' 本</b>')}
+      ${row('新たに数えられた木', c.fresh.length + ' 本', true)}
+      ${row('大きく低くなった面積', fmt(S.lostHa, 3) + ' ha', true)}
+    </dl>
+    <div class="label"><span>地盤の変化</span></div>
+    <dl class="kv">
+      ${row('削られた量（侵食・崩壊）', m3(S.cut))}
+      ${row('積もった量（堆積）', m3(S.fill))}
+      ${row('差し引き', (S.fill - S.cut >= 0 ? '+' : '−') + m3(Math.abs(S.fill - S.cut)))}
+      ${row('変化した面積', fmt(S.gChangedHa, 3) + ' ha', true)}
+      ${row('比較できた面積', fmt(S.areaHa, 2) + ' ha', true)}
+    </dl>
+    ${truth}
+    <button class="btn" type="button" id="copyCmp">1本ごとの成長をコピー（Excel用）</button>
+    <textarea class="copyfall" id="copyFallCmp" hidden readonly aria-label="コピー用テキスト"></textarea>
+    <div class="tablewrap"><table><thead><tr><th>No.</th><th>X</th><th>Y</th><th>前回</th><th>今回</th><th>成長</th></tr></thead><tbody>
+    ${c.pairs.slice(0, 200).map((q, i) => `<tr><td>${i + 1}</td><td>${(q.x + ST.P.origin.x).toFixed(2)}</td><td>${(q.y + ST.P.origin.y).toFixed(2)}</td><td>${q.hOld.toFixed(1)}</td><td>${q.hNew.toFixed(1)}</td><td>${(q.dh >= 0 ? '+' : '') + q.dh.toFixed(2)}</td></tr>`).join('')}
+    ${c.pairs.length > 200 ? `<tr><td colspan="6" style="text-align:center;color:var(--muted)">ほか ${c.pairs.length - 200} 本（コピーすると全件入ります）</td></tr>` : ''}
+    </tbody></table></div>`;
+  $('#copyCmp').addEventListener('click', () => {
+    const o = ST.P.origin, f = (v, d) => v.toFixed(d);
+    const rows = ['No.\tX\tY\t状態\t前回樹高(m)\t今回樹高(m)\t成長(m)']
+      .concat(c.pairs.map((q, i) => [i + 1, f(q.x + o.x, 3), f(q.y + o.y, 3), '継続', f(q.hOld, 2), f(q.hNew, 2), f(q.dh, 2)].join('\t')))
+      .concat(c.lost.map((q, i) => [c.pairs.length + i + 1, f(q.x + o.x, 3), f(q.y + o.y, 3), '伐採・倒木の可能性', f(q.h, 2), '', ''].join('\t')));
+    copyText(rows.join('\n'), '#copyFallCmp', (rows.length - 1) + '本分をコピーしました');
+  });
+  $('#cmpLegend').innerHTML = divLegend();
+}
+$('#open2').addEventListener('click', () => $('#fileIn2').click());
+$('#fileIn2').addEventListener('change', e => { openPast(e.target.files); e.target.value = ''; });
+$('#samplePast').addEventListener('click', () => { if (ST.P) setPast(alignTo(PC.genSample(true), ST.P)); });
+$('#runCmp').addEventListener('click', runCompare);
+const refreshCmpView = () => { buildCmpImg(); if (ST.mode === 'chg') recolor(); drawMap(); $('#cmpLegend').innerHTML = divLegend(); };
+segment('#layerSeg', 'l', v => { ST.layer = v; refreshCmpView(); });
+bindRange('#cThr', '#cThrV', v => { ST.cThr = v; return '±' + fmt(v, 2) + ' m'; });
+$('#cThr').addEventListener('change', () => { if (ST.cmp) runCompare(); });
+bindRange('#cRange', '#cRangeV', v => { ST.cRange = v; return '±' + fmt(v, 1) + ' m'; });
+$('#cRange').addEventListener('input', () => { if (ST.cmp) refreshCmpView(); });
+$('#cOnMap').addEventListener('change', e => { ST.cOnMap = e.target.checked; drawMap(); });
+$('#cOnProf').addEventListener('change', e => { ST.cOnProf = e.target.checked; if (ST.sec) setSection(ST.sec, true); });
+
+/* ---- 地表面だけ表示 ---- */
+let groundBackup = null;
+function applyGroundOnly(on){
+  const P = ST.P; if (!P || !cloud) return;
+  const attr = cloud.geometry.attributes.position, pos = attr.array;
+  if (on) {
+    const useCls = P.classCount[2] > P.n * 0.005;
+    if (!useCls && !P.hag) { PC.computeGround(P, ST.ground); P.groundMethod = ST.ground; }
+    groundBackup = P.pos;
+    for (let i = 0; i < P.n; i++) {
+      const g = useCls ? P.cls[i] === 2 : P.hag[i] < 0.5;
+      pos[i*3+2] = g ? groundBackup[i*3+2] : -1e6;
+    }
+  } else if (groundBackup) { pos.set(groundBackup); }
+  attr.needsUpdate = true; req();
+}
+$('#groundOnly').addEventListener('change', e => { if (e.target.checked && ST.mode === 'rgb') $('[data-c="elev"]').click(); applyGroundOnly(e.target.checked); });
+
+/* ---- 共通UI ---- */
+function segment(sel, key, cb){
+  const root = $(sel);
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    root.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); cb(b.dataset[key]);
+  });
+}
+segment('#colorSeg', 'c', v => {
+  ST.mode = v;
+  if (v === 'hag' && !ST.P.hag) { PC.computeGround(ST.P, ST.ground); ST.P.groundMethod = ST.ground; }
+  if (v === 'chg') $('#cmpLegend').innerHTML = divLegend();
+  recolor(); colorNote();
+});
+function colorNote(){
+  const P = ST.P, el = $('#colorNote');
+  el.textContent = ST.mode === 'rgb' && !P.rgb ? 'このファイルには色の情報がありません。Terraで「点群に色を付ける」設定で書き出すとRGB表示できます。'
+    : ST.mode === 'hag' ? '地面からの高さで色分けします。木の高さや電線の離隔を見るのに便利です。'
+    : ST.mode === 'chg' ? '「比較」タブで選んだ変化（樹高または地盤）で色分けしています。灰色は変化なし、暗い点は対象外です。' : '';
+  $('[data-c="rgb"]').disabled = !P.rgb;
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+  ['disp', 'sec', 'tree', 'cmp', 'info'].forEach(t => $('#tab-' + t).hidden = t !== b.dataset.tab);
+  if (b.dataset.tab === 'tree') { updateGroundNote(); drawHist(); }
+}));
+bindRange('#ptSize', '#ptSizeV', v => { ST.ptSize = v; if (cloud) { cloud.material.size = v; req(); } return fmt(v, 1) + ' px'; });
+['#zLo', '#zHi'].forEach(id => $(id).addEventListener('input', () => {
+  if (+$('#zLo').value > +$('#zHi').value - 5) { if (id === '#zLo') $('#zLo').value = +$('#zHi').value - 5; else $('#zHi').value = +$('#zLo').value + 5; }
+  updateClip();
+}));
+let tt = null;
+function toast(msg){ const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(tt); tt = setTimeout(() => el.hidden = true, 3200); }
+function copyText(text, fallSel, okMsg){
+  const fall = $(fallSel);
+  const fb = () => { fall.hidden = false; fall.value = text; fall.focus(); fall.select(); toast('自動コピーできませんでした。下の枠の中身をコピーしてください'); };
+  try { navigator.clipboard.writeText(text).then(() => { fall.hidden = true; toast(okMsg); }, fb); } catch (e) { fb(); }
+}
+
+function showInfo(){
+  const P = ST.P, m = P.meta, b = P.bounds, o = P.origin;
+  const rows = [['ファイル', m.name], ['LASバージョン', m.version], ['点データ形式', m.fmt], ['ファイル内の点数', Number(m.total).toLocaleString()],
+    ['表示中の点数', P.n.toLocaleString() + (m.stride > 1 ? `（${m.stride}点に1点）` : '')], ['色情報', P.rgb ? 'あり' : 'なし'],
+    ['X 範囲', fmt(b.minX + o.x, 2) + ' 〜 ' + fmt(b.maxX + o.x, 2)], ['Y 範囲', fmt(b.minY + o.y, 2) + ' 〜 ' + fmt(b.maxY + o.y, 2)],
+    ['標高 範囲', fmt(b.minZ + o.z, 2) + ' 〜 ' + fmt(b.maxZ + o.z, 2) + ' m'], ['範囲の大きさ', fmt(b.maxX - b.minX, 1) + ' × ' + fmt(b.maxY - b.minY, 1) + ' m'],
+    ['座標の分解能', m.scale.map(v => v).join(' / ')]];
+  $('#infoKv').innerHTML = rows.map(([a, v]) => `<dt>${a}</dt><dd style="white-space:normal;word-break:break-all">${v}</dd>`).join('');
+  const cc = []; for (let c = 0; c < 256; c++) if (P.classCount[c]) cc.push(`<dt>${c}：${(CLS[c] || ['その他'])[0]}</dt><dd>${P.classCount[c].toLocaleString()}</dd>`);
+  $('#clsKv').innerHTML = cc.join('');
+  const fl = m.files && m.files.length > 1 ? m.files : null; $('#filesGroup').hidden = !fl;
+  if (fl) { $('#filesKv').innerHTML = ''; fl.forEach(f => { const dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = f.name; dt.style.wordBreak = 'break-all'; dd.textContent = f.count.toLocaleString() + ' 点'; $('#filesKv').append(dt, dd); }); }
+  if (m.files && m.files.length > 1 && !P.rgb && m.files.some(f => f.rgb)) toast('色情報がないファイルが混ざっているため、RGB表示はオフにしました');
+  $('#stats3d').textContent = P.n.toLocaleString() + ' 点';
+  $('#fileChip').innerHTML = (m.sample ? '' : 'ファイル ') + '<b></b>'; $('#fileChip b').textContent = m.name;
+}
+
+function loadData(P){
+  groundBackup = null; const go = document.querySelector('#groundOnly'); if (go) go.checked = false;
+  ST.P = P; ST.trees = null; ST.sec = null; ST.prof = null; PV = null;
+  ST.P2 = null; ST.cmp = null; ST.prof2 = null; cmpImg = null; $('#cmpBody').hidden = true; $('#p2Kv').innerHTML = '';
+  $('#samplePast').hidden = !P.meta.sample; $('[data-c="chg"]').disabled = true; if (ST.mode === 'chg') ST.mode = 'elev';
+  $('#profile').hidden = true; $('#treeResult').hidden = true; $('#copyGround').disabled = true;
+  if (band) { scene.remove(band); band = null; } build3dTops();
+  $('#zLo').value = 0; $('#zHi').value = 1000;
+  buildCloud();
+  if (!P.rgb && ST.mode === 'rgb') ST.mode = 'elev';
+  if (ST.mode === 'hag') ST.mode = 'elev';
+  document.querySelectorAll('#colorSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === ST.mode));
+  $('[data-c="hag"]').disabled = false;
+  recolor(); colorNote(); setCam('persp'); buildMap(); showInfo(); updateGroundNote();
+  const b = P.bounds, ha = (b.maxX - b.minX) * (b.maxY - b.minY) / 10000;
+  ST.res = ha < 10 ? 0.25 : ha < 100 ? 0.5 : 1;
+  document.querySelectorAll('#resSeg button').forEach(x => x.setAttribute('aria-pressed', +x.dataset.r === ST.res));
+}
+
+async function openFile(list){
+  const files = [...(list || [])].filter(f => f && f.size).sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
+  if (!files.length) return;
+  const ld = $('#loading'), fill = $('#loadFill');
+  ld.hidden = false; fill.style.width = '0%';
+  $('#loadMsg').textContent = files.length > 1 ? files.length + 'ファイルを結合して読み込み中…' : files[0].name + ' を読み込み中…';
+  try {
+    const P = await PC.readLAS(files, +$('#maxPts').value, (p, nm) => {
+      fill.style.width = (p * 100).toFixed(0) + '%';
+      if (files.length > 1) $('#loadMsg').textContent = `${files.length}ファイルを結合中… ${nm}`;
+    });
+    $('#loadMsg').textContent = '表示を準備中…';
+    await new Promise(r => setTimeout(r, 20));
+    loadData(P);
+    if (P.meta.stride > 1) toast(`${Number(P.meta.total).toLocaleString()}点のうち${P.n.toLocaleString()}点を表示しています`);
+  } catch (err) {
+    const msg = { LAZ: '圧縮されたLAZ形式は読み込めません。DJI Terraで点群の出力形式を「LAS」にして書き出してください。',
+      NOTLAS: 'LASファイルではないようです。DJI Terraで点群をLAS形式で書き出したファイルを選んでください。',
+      FMT: 'このLASの点データ形式には対応していません。', EMPTY: 'ファイルに点が入っていません。',
+      FAR: '選んだファイルどうしの位置が50km以上離れています。座標系（平面直角座標の系番号など）が同じか確認してください。' }[err.message];
+    toast(msg || '読み込みに失敗しました：' + err.message); console.error(err);
+  }
+  ld.hidden = true;
+}
+$('#openBtn').addEventListener('click', () => $('#fileIn').click());
+$('#fileIn').addEventListener('change', e => { openFile(e.target.files); e.target.value = ''; });
+let dc = 0;
+window.addEventListener('dragenter', e => { if ([...e.dataTransfer.types].includes('Files')) { dc++; $('#drop').hidden = false; } });
+window.addEventListener('dragleave', () => { dc = Math.max(0, dc - 1); if (!dc) $('#drop').hidden = true; });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => { e.preventDefault(); dc = 0; $('#drop').hidden = true; openFile(e.dataTransfer.files); });
+
+/* ---- 起動：サンプルを表示 ---- */
+scene.background = new THREE.Color(css('--view') || '#0a0e0c');
+(async () => {
+  let P = null;
+  try {
+    const r = await fetch('cloud.txt');   // 共有用データ（LUPCをbase64化したもの）
+    if (r.ok) {
+      $('#loading').hidden = false; $('#loadMsg').textContent = '実測データを読み込み中…'; $('#loadFill').style.width = '60%';
+      const bin = atob((await r.text()).trim()), u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      P = PC.readPacked(u8.buffer);
+    }
+  } catch (e) { P = null; }
+  $('#loading').hidden = true;
+  if (P) {
+    if (window.matchMedia('(max-width: 900px)').matches) { ST.ptSize = 1.5; $('#ptSize').value = 1.5; $('#ptSize').dispatchEvent(new Event('input')); }
+    loadData(P);
+    if (P.rgb) $('[data-c="rgb"]').click();
+    $('[data-e="2"]').click();
+    secAxis('ew');
+  } else {
+    loadData(PC.genSample());
+    setBaseSection((() => { const b = ST.P.bounds; return { ax: b.minX + 6, ay: -10, bx: b.maxX - 6, by: 6 }; })());
+  }
+})();
+})();
+</script>
+
+</body>
+</html>
